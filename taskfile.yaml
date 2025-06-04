@@ -14,11 +14,13 @@ vars:
   G_COMPONENTS_DIR: "{{.ROOT_DIR}}/components"
   G_CORE_COMPONENT_DIR: "{{.G_COMPONENTS_DIR}}/core"
   G_CORE_COMPONENT_SUBMODULES_DIR: "{{.G_CORE_COMPONENT_DIR}}/submodules"
+  G_SPIDER_ORCHESTRATION_COMPONENT_DIR: "{{.G_COMPONENTS_DIR}}/spider-orchestration"
   G_LOG_VIEWER_WEBUI_SRC_DIR: "{{.G_COMPONENTS_DIR}}/log-viewer-webui"
 
   # Build paths
   G_BUILD_DIR: "{{.ROOT_DIR}}/build"
   G_CORE_COMPONENT_BUILD_DIR: "{{.G_BUILD_DIR}}/core"
+  G_SPIDER_ORCHESTRATION_BUILD_DIR: "{{.G_BUILD_DIR}}/orchestration"
   G_LOG_VIEWER_WEBUI_BUILD_DIR: "{{.G_BUILD_DIR}}/log-viewer-webui"
   G_METEOR_BUILD_DIR: "{{.G_BUILD_DIR}}/meteor"
   G_NODEJS_14_BUILD_DIR: "{{.G_BUILD_DIR}}/nodejs-14"
@@ -59,6 +61,12 @@ tasks:
       - task: "utils:cmake:clean"
         vars:
           BUILD_DIR: "{{.G_CORE_COMPONENT_BUILD_DIR}}"
+
+  clean-spider-orchestration:
+    cmds:
+      - task: "utils:cmake:clean"
+        vars:
+          BUILD_DIR: "{{.G_SPIDER_ORCHESTRATION_BUILD_DIRT}}"
 
   clean-log-viewer-webui:
     cmds:

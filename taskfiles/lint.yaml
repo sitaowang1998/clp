@@ -118,6 +118,7 @@ tasks:
           .yamllint.yml \
           components/core/.clang-format \
           components/core/config \
+          components/spider-orchestration/.clang-format \
           components/package-template/src/etc \
           docs \
           taskfile.yaml \
@@ -131,6 +132,9 @@ tasks:
       - "{{.G_CORE_COMPONENT_DIR}}/.clang-format"
       - "{{.G_CORE_COMPONENT_DIR}}/src/**/*"
       - "{{.G_CORE_COMPONENT_DIR}}/tests/**/*"
+      - "{{.G_SPIDER_ORCHESTRATION_COMPONENT_DIR}}/.clang-format"
+      - "{{.G_SPIDER_ORCHESTRATION_COMPONENT_DIR}}/src/**/*"
+      - "{{.G_SPIDER_ORCHESTRATION_COMPONENT_DIR}}/tests/**/*"
     deps: ["cpp-lint-configs", "venv"]
     cmds:
       - task: ":utils:cpp-lint:clang-format"
