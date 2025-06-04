@@ -74,6 +74,8 @@ else()
     message(FATAL_ERROR "Could not find libraries for Catch2.")
 endif()
 
+add_subdirectory(submodules/spider)
+
 add_subdirectory(src/orchestration)
 
 add_subdirectory(tests)
