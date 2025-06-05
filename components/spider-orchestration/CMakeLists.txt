@@ -67,6 +67,10 @@ else()
 endif()
 message(STATUS "Building using ${ORCHESTRATION_LIBS_STRING} libraries.")
 
+if (PROJECT_IS_TOP_LEVEL)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/../../build/deps/cpp-deps/cmake-settings/all.cmake)
+endif()
+
 find_package(Catch2 3.8.0 REQUIRED)
 if(Catch2_FOUND)
     message(STATUS "Found Catch2 ${Catch2_VERSION}.")
