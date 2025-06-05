@@ -20,7 +20,7 @@ vars:
   # Build paths
   G_BUILD_DIR: "{{.ROOT_DIR}}/build"
   G_CORE_COMPONENT_BUILD_DIR: "{{.G_BUILD_DIR}}/core"
-  G_SPIDER_ORCHESTRATION_BUILD_DIR: "{{.G_BUILD_DIR}}/orchestration"
+  G_SPIDER_ORCHESTRATION_COMPONENT_BUILD_DIR: "{{.G_BUILD_DIR}}/orchestration"
   G_LOG_VIEWER_WEBUI_BUILD_DIR: "{{.G_BUILD_DIR}}/log-viewer-webui"
   G_METEOR_BUILD_DIR: "{{.G_BUILD_DIR}}/meteor"
   G_NODEJS_14_BUILD_DIR: "{{.G_BUILD_DIR}}/nodejs-14"
@@ -193,13 +193,13 @@ tasks:
   core-generate:
     internal: true
     sources: &core_source_files
-      - "{{.G_DEPS_CORE_CHECKSUM_FILE}}"
+      - "{{.G_DEPS_CPP_CHECKSUM_FILE}}"
       - "{{.G_CORE_COMPONENT_DIR}}/cmake/**/*"
       - "{{.G_CORE_COMPONENT_DIR}}/CMakeLists.txt"
       - "{{.G_CORE_COMPONENT_DIR}}/src/**/*"
       - "{{.TASKFILE}}"
       - "/etc/os-release"
-    deps: ["deps:core"]
+    deps: ["deps:cpp"]
     cmds:
       - task: "utils:cmake:generate"
         vars:
@@ -221,6 +221,39 @@ tasks:
         vars:
           BUILD_DIR: "{{.G_CORE_COMPONENT_BUILD_DIR}}"
           TARGETS: ["clg", "clo", "clp", "clp-s", "indexer", "reducer-server"]
+
+  spider-orchestration:
+    cmds:
+      - task: "spider-orchestration-generate"
+      - task: "spider-orchestration-build"
+
+  spider-orchestration-generate:
+    internal: true
+    sources: &spider-orchestration_source_files
+      - "{{.G_DEPS_CPP_CHECKSUM_FILE}}"
+      - "{{.G_SPIDER_ORCHESTRATION_COMPONENT_DIR}}/cmake/**/*"
+      - "{{.G_SPIDER_ORCHESTRATION_COMPONENT_DIR}}/CMakeLists.txt"
+      - "{{.G_SPIDER_ORCHESTRATION_COMPONENT_DIR}}/src/**/*"
+      - "{{.TASKFILE}}"
+      - "/etc/os-release"
+    deps: ["deps:cpp"]
+    cmds:
+      - task: "utils:cmake:generate"
+        vars:
+          BUILD_DIR: "{{.G_SPIDER_ORCHESTRATION_COMPONENT_BUILD_DIR}}"
+          SOURCE_DIR: "{{.G_SPIDER_ORCHESTRATION_COMPONENT_DIR}}"
+
+  spider-orchestration-build:
+    internal: true
+    sources: *spider-orchestration_source_files
+    generates:
+      - "{{.G_CORE_COMPONENT_BUILD_DIR}}/compression_client"
+      - "{{.G_CORE_COMPONENT_BUILD_DIR}}/compression_task"
+    cmds:
+      - task: "utils:cmake:build"
+        vars:
+          BUILD_DIR: "{{.G_CORE_COMPONENT_BUILD_DIR}}"
+          TARGETS: ["compression_task", "compression_client"]
 
   clp-package-utils:
     - task: "python-component"
