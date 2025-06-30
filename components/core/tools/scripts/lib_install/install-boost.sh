@@ -34,7 +34,7 @@ tar xzf ${tar_filename}
 cd boost_${version_with_underscores}
 
 # Build
-./bootstrap.sh --with-libraries=filesystem,iostreams,program_options,regex,system,url
+./bootstrap.sh --with-libraries=filesystem,iostreams,program_options,regex,system,url,process
 ./b2 -j${num_cpus}
 
 # Install
