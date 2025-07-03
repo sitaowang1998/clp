@@ -12,6 +12,8 @@ _task_insert_output_task_query = "INSERT INTO `output_tasks` (`job_id`, `task_id
 _job_status_query = "SELECT `state` FROM `jobs` WHERE `id` = %s"
 _job_output_tasks_query = "SELECT `task_id` FROM `output_tasks` WHERE `job_id` = %s ORDER BY `position`"
 _task_output_values_query = "SELECT `value` FROM `task_outputs` WHERE `task_id` = %s ORDER BY `position`"
+_int_typename = "int"
+_string_typename = "string"
 
 def submit_jobs(db_conn, db_cursor, client_id, task_params) -> Union[List[uuid.UUID], None]:
     """
@@ -28,13 +30,13 @@ def submit_jobs(db_conn, db_cursor, client_id, task_params) -> Union[List[uuid.U
     try:
         db_cursor.executemany(_job_insert_query, [(job_id, client_id) for job_id in job_ids])
         db_cursor.executemany(_task_insert_query, [(task_ids[i], job_ids[i], "clp_compress", "ready", 0, 0) for i in enumerate(task_params)])
-        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 0, "int", msgpack.packb(task_param["job_id"])) for i, task_param in enumerate(task_params)])
-        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 1, "int", msgpack.packb(task_param["task_id"])) for i, task_param in enumerate(task_params)])
-        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, "string", msgpack.packb(task_param["tag_ids"])) for i, task_param in enumerate(task_params)])
-        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, "string", msgpack.packb(task_param["clp_io_config_json"])) for i, task_param in enumerate(task_params)])
-        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, "string", msgpack.packb(task_param["paths_to_compression_json"])) for i, task_param in enumerate(task_params)])
-        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, "string", msgpack.packb(task_param["clp_metadata_db_connection_config"])) for i, task_param in enumerate(task_params)])
-        db_cursor.executemany(_task_insert_output_query, [(task_ids[i], 0, "string") for i in range(len(task_params))])
+        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 0, _int_typename, msgpack.packb(task_param["job_id"])) for i, task_param in enumerate(task_params)])
+        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 1, _int_typename, msgpack.packb(task_param["task_id"])) for i, task_param in enumerate(task_params)])
+        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, _string_typename, msgpack.packb(task_param["tag_ids"])) for i, task_param in enumerate(task_params)])
+        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, _string_typename, msgpack.packb(task_param["clp_io_config_json"])) for i, task_param in enumerate(task_params)])
+        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, _string_typename, msgpack.packb(task_param["paths_to_compression_json"])) for i, task_param in enumerate(task_params)])
+        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, _string_typename, msgpack.packb(task_param["clp_metadata_db_connection_config"])) for i, task_param in enumerate(task_params)])
+        db_cursor.executemany(_task_insert_output_query, [(task_ids[i], 0, _string_typename) for i in range(len(task_params))])
         db_cursor.executemany(_task_insert_input_task_query, [(job_ids[i], task_ids[i], 0) for i in range(len(task_params))])
         db_cursor.executemany(_task_insert_output_task_query, [(job_ids[i], task_ids[i], 0) for i in range(len(task_params))])
     except Exception as e:
