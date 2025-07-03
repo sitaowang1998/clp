@@ -1,3 +1,4 @@
+import argparse
 import datetime
 import json
 import os
@@ -6,6 +7,7 @@ import subprocess
 from contextlib import closing
 from typing import Any, Dict, List, Optional, Tuple
 
+import msgpack
 import yaml
 from celery.app.task import Task
 from celery.utils.log import get_task_logger
@@ -536,3 +538,73 @@ def compress(
         compression_task_result.error_message = worker_output["error_message"]
 
     return compression_task_result.dict()
+
+if __name__ == "__main__":
+    """
+    Main function to run the compression task from C++.
+    The parent process will open two pipes to communicate with this program:
+    1. A pipe to write the input parameters for the compression task.
+    2. A pipe to read the output of the compression task.
+    These pipes are passed in as command line arguments:
+    1. `--input-pipe-read`: The file descriptor of the read end of input pipe. This will be used to read the input parameters.
+    2. `--input-pipe-write`: The file descriptor of write end of the input pipe. This will be closed immediately.
+    3. `--output-pipe-read`: The file descriptor of the read end of output pipe. This will be closed immediately.
+    4. `--output-pipe-write`: The file descriptor of the write end of output pipe. This will be used to write the output results.
+    The input parameters are expected to be in msgpack format, containing the following fields in order:
+    1. `job_id`: The ID of the compression job.
+    2. `task_id`: The ID of the compression task.
+    3. `tag_ids`: A list of tag IDs to associate with the compression task.
+    4. `clp_io_config_json`: The JSON string of the ClpIoConfig object.
+    5. `paths_to_compress_json`: The JSON string of the PathsToCompress object.
+    6. `clp_metadata_db_connection_config`: The JSON string of the database connection configuration.
+    The output result will be written to the output pipe in msgpack array format, containing the following fields:
+    1. `task_id`: The ID of the compression task.
+    2. `status`: The status of the compression task (SUCCEEDED or FAILED).
+    3. `duration`: The duration of the compression task in seconds.
+    4. `error_message`: The error message if the compression task failed, otherwise the field will be omitted.
+    """
+    parser = argparse.ArgumentParser(description="Run compression task")
+    parser.add_argument("--input-pipe-read", type=int, required=True)
+    parser.add_argument("--input-pipe-write", type=int, required=True)
+    parser.add_argument("--output-pipe-read", type=int, required=True)
+    parser.add_argument("--output-pipe-write", type=int, required=True)
+    args = parser.parse_args()
+
+    # Close unused pipe ends
+    os.close(args.input_pipe_write)
+    os.close(args.output_pipe_read)
+
+    # Read input parameters from input pipe (msgpack)
+    with os.fdopen(args.input_pipe_read, "rb") as input_pipe:
+        unpacker = msgpack.Unpacker(input_pipe, raw=False, use_list=True)
+        job_id = unpacker.unpack()
+        task_id = unpacker.unpack()
+        tag_ids = unpacker.unpack()
+        clp_io_config_json = unpacker.unpack()
+        paths_to_compress_json = unpacker.unpack()
+        clp_metadata_db_connection_config = unpacker.unpack()
+    clp_metadata_db_connection_config = json.loads(clp_metadata_db_connection_config)
+
+    # Run compression task
+    result = compress(
+        None,  # self is not used in compress
+        job_id,
+        task_id,
+        tag_ids,
+        clp_io_config_json,
+        paths_to_compress_json,
+        clp_metadata_db_connection_config,
+    )
+
+    # Write result to output pipe (msgpack)
+    with os.fdopen(args.output_pipe_write, "wb") as output_pipe:
+        packer = msgpack.Packer(use_bin_type=True)
+        if result.error_message is None:
+            packer.pack_array_head(3)
+        else:
+            packer.pack_array_head(4)
+        packer.pack(result.task_id)
+        packer.pack(result.status)
+        packer.pack(result.duration)
+        if result.error_message is not None:
+            packer.pack(result.error_message)
