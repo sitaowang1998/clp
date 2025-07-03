@@ -43,6 +43,10 @@ from job_orchestration.scheduler.scheduler_data import (
     CompressionJob,
     CompressionTaskResult,
 )
+from job_orchestration.scheduler.compress.spider_client import (
+    submit_jobs,
+    poll_result,
+)
 from pydantic import ValidationError
 
 # Setup logging
