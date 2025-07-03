@@ -1,7 +1,8 @@
+from typing import Optional
+
 import msgpack
 import uuid
 
-from typing import List, Union
 
 _job_insert_query = "INSERT INTO `jobs` (`id`, `client_id`) VALUES (%s, %s)"
 _task_insert_query = "INSERT INTO `tasks` (`id`, `job_id`, `func_name`, `state`, `timeout`, `max_retry`) VALUES (%s, %s, %s, %s, %s, %s)"
@@ -15,21 +16,21 @@ _task_output_values_query = "SELECT `value` FROM `task_outputs` WHERE `task_id` 
 _int_typename = "int"
 _string_typename = "string"
 
-def submit_jobs(db_conn, db_cursor, client_id, task_params) -> Union[List[uuid.UUID], None]:
+def submit_job(db_conn, db_cursor, client_id, task_params) -> Optional[uuid.UUID]:
     """
     Submit compression tasks to the Spider database.
     :param db_conn:
     :param db_cursor:
     :param client_id: The ID of the client submitting the jobs.
     :param task_params: List of dictionaries containing task parameters.
-    :return: List of job IDs for the submitted tasks. None if submission fails.
+    :return: Job IDs for the submitted tasks. None if submission fails.
     """
-    job_ids = [uuid.uuid4() for _ in range(len(task_params))]
+    job_id = uuid.uuid4()
     task_ids = [uuid.uuid4() for _ in range(len(task_params))]
 
     try:
-        db_cursor.executemany(_job_insert_query, [(job_id, client_id) for job_id in job_ids])
-        db_cursor.executemany(_task_insert_query, [(task_ids[i], job_ids[i], "clp_compress", "ready", 0, 0) for i in enumerate(task_params)])
+        db_cursor.execute(_job_insert_query, (job_id, client_id))
+        db_cursor.executemany(_task_insert_query, [(task_ids[i], job_id, "clp_compress", "ready", 0, 0) for i in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 0, _int_typename, msgpack.packb(task_param["job_id"])) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 1, _int_typename, msgpack.packb(task_param["task_id"])) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, _string_typename, msgpack.packb(task_param["tag_ids"])) for i, task_param in enumerate(task_params)])
@@ -37,13 +38,13 @@ def submit_jobs(db_conn, db_cursor, client_id, task_params) -> Union[List[uuid.U
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, _string_typename, msgpack.packb(task_param["paths_to_compression_json"])) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, _string_typename, msgpack.packb(task_param["clp_metadata_db_connection_config"])) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_output_query, [(task_ids[i], 0, _string_typename) for i in range(len(task_params))])
-        db_cursor.executemany(_task_insert_input_task_query, [(job_ids[i], task_ids[i], 0) for i in range(len(task_params))])
-        db_cursor.executemany(_task_insert_output_task_query, [(job_ids[i], task_ids[i], 0) for i in range(len(task_params))])
+        db_cursor.executemany(_task_insert_input_task_query, [(job_id, task_ids[i], i) for i in range(len(task_params))])
+        db_cursor.executemany(_task_insert_output_task_query, [(job_id, task_ids[i], i) for i in range(len(task_params))])
     except Exception as e:
         db_conn.rollback()
         return None
 
-    return job_ids
+    return job_id
 
 def poll_result(db_conn, db_cursor, job_id: uuid.UUID):
     """

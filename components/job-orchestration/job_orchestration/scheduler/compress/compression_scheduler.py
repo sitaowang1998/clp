@@ -44,7 +44,7 @@ from job_orchestration.scheduler.scheduler_data import (
     CompressionTaskResult,
 )
 from job_orchestration.scheduler.compress.spider_client import (
-    submit_jobs,
+    submit_job,
     poll_result,
 )
 from pydantic import ValidationError
@@ -161,6 +161,8 @@ def _process_s3_input(
 def search_and_schedule_new_tasks(
     db_conn,
     db_cursor,
+    spider_db_conn,
+    spider_db_cursor,
     clp_metadata_db_connection_config: Dict[str, Any],
     clp_storage_engine: StorageEngine,
     clp_archive_output: ArchiveOutput,
@@ -170,6 +172,8 @@ def search_and_schedule_new_tasks(
     For all jobs with PENDING status, splits the job into tasks and schedules them.
     :param db_conn:
     :param db_cursor:
+    :param spider_db_conn:
+    :param spider_db_cursor:
     :param clp_metadata_db_connection_config:
     :param clp_storage_engine:
     :param clp_archive_output:
@@ -293,7 +297,7 @@ def search_and_schedule_new_tasks(
             tag_ids = [tags["tag_id"] for tags in db_cursor.fetchall()]
             db_conn.commit()
 
-        task_instances = []
+        task_params = []
         for task_idx, task in enumerate(tasks):
             db_cursor.execute(
                 f"""
@@ -306,11 +310,14 @@ def search_and_schedule_new_tasks(
             db_conn.commit()
             task["task_id"] = db_cursor.lastrowid
             task["tag_ids"] = tag_ids
-            task_instances.append(compress.s(**task))
-        tasks_group = celery.group(task_instances)
+            task_params.append(task)
+        spider_job_id = submit_job(spider_db_conn, spider_db_cursor, task_params)
+        if spider_job_id is None:
+            logger.error("Failed to submit job to spider")
+            db_conn.rollack()
 
         job = CompressionJob(
-            id=job_id, start_time=start_time, async_task_result=tasks_group.apply_async()
+            id=job_id, start_time=start_time, spider_job_id = spider_job_id,
         )
         db_cursor.execute(
             f"""
@@ -321,13 +328,6 @@ def search_and_schedule_new_tasks(
         db_conn.commit()
 
         scheduled_jobs[job_id] = job
-
-
-def get_results_or_timeout(result):
-    try:
-        return result.get(timeout=0.1)
-    except celery.exceptions.TimeoutError:
-        return None
 
 
 def poll_running_jobs(db_conn, db_cursor):

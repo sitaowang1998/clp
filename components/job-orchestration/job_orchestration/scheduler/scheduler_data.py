@@ -3,6 +3,7 @@ import datetime
 from abc import ABC, abstractmethod
 from enum import auto, Enum
 from typing import Any, Dict, List, Optional
+import uuid
 
 from job_orchestration.scheduler.constants import (
     CompressionTaskStatus,
@@ -22,7 +23,7 @@ from pydantic import BaseModel, validator
 class CompressionJob(BaseModel):
     id: int
     start_time: datetime.datetime
-    async_task_result: Any
+    spider_job_id: uuid.UUID
 
 
 class CompressionTaskResult(BaseModel):
