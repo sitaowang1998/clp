@@ -1,5 +1,6 @@
 from typing import Optional
 
+import json
 import msgpack
 import uuid
 
@@ -15,6 +16,7 @@ _job_output_tasks_query = "SELECT `task_id` FROM `output_tasks` WHERE `job_id` =
 _task_output_values_query = "SELECT `value` FROM `task_outputs` WHERE `task_id` = %s ORDER BY `position`"
 _int_typename = "int"
 _string_typename = "string"
+_clp_compress_task_path = "/path/to/compression_task.py"
 
 def submit_job(db_conn, db_cursor, client_id, task_params) -> Optional[uuid.UUID]:
     """
@@ -37,7 +39,7 @@ def submit_job(db_conn, db_cursor, client_id, task_params) -> Optional[uuid.UUID
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 3, _string_typename, msgpack.packb(task_param["clp_io_config_json"])) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 4, _string_typename, msgpack.packb(task_param["paths_to_compression_json"])) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 5, _string_typename, msgpack.packb(task_param["clp_metadata_db_connection_config"])) for i, task_param in enumerate(task_params)])
-        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 6, _string_typename, msgpack.packb(task_param["clp_compress_task_path"])) for i, task_param in enumerate(task_params)])
+        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 6, _string_typename, msgpack.packb(_clp_compress_task_path)) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_output_query, [(task_ids[i], 0, _string_typename) for i in range(len(task_params))])
         db_cursor.executemany(_task_insert_input_task_query, [(job_id, task_ids[i], i) for i in range(len(task_params))])
         db_cursor.executemany(_task_insert_output_task_query, [(job_id, task_ids[i], i) for i in range(len(task_params))])
@@ -75,8 +77,8 @@ def poll_result(db_conn, db_cursor, job_id: uuid.UUID):
         for task in output_tasks:
             task_id = task[0]
             db_cursor.execute(_task_output_values_query, (task_id,))
-            values = [msgpack.unpackb(value[0]) for value in db_cursor.fetchall()]
-            output_values.extend(values)
+            value = db_cursor.fetchone()
+            output_values = json.loads(msgpack.unpackb(value[0]))
     except Exception as e:
         db_conn.commit()
         return []

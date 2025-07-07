@@ -557,7 +557,7 @@ if __name__ == "__main__":
     4. `clp_io_config_json`: The JSON string of the ClpIoConfig object.
     5. `paths_to_compress_json`: The JSON string of the PathsToCompress object.
     6. `clp_metadata_db_connection_config`: The JSON string of the database connection configuration.
-    The output result will be written to the output pipe in msgpack array format, containing the following fields:
+    The output result will be written to the output pipe in json format, containing the following fields:
     1. `task_id`: The ID of the compression task.
     2. `status`: The status of the compression task (SUCCEEDED or FAILED).
     3. `duration`: The duration of the compression task in seconds.
@@ -597,14 +597,5 @@ if __name__ == "__main__":
     )
 
     # Write result to output pipe (msgpack)
-    with os.fdopen(args.output_pipe_write, "wb") as output_pipe:
-        packer = msgpack.Packer(use_bin_type=True)
-        if result.error_message is None:
-            packer.pack_array_head(3)
-        else:
-            packer.pack_array_head(4)
-        packer.pack(result.task_id)
-        packer.pack(result.status)
-        packer.pack(result.duration)
-        if result.error_message is not None:
-            packer.pack(result.error_message)
+    with os.fdopen(args.output_pipe_write, "w") as output_pipe:
+        json.dump(result, output_pipe)

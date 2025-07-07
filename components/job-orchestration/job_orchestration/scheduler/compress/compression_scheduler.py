@@ -344,7 +344,7 @@ def poll_running_jobs(db_conn, db_cursor):
         error_message = ""
 
         try:
-            returned_results = get_results_or_timeout(job.async_task_result)
+            returned_results = poll_result(job.async_task_result)
             if returned_results is None:
                 continue
 
