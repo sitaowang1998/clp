@@ -15,6 +15,7 @@ _job_status_query = "SELECT `state` FROM `jobs` WHERE `id` = %s"
 _job_output_tasks_query = "SELECT `task_id` FROM `output_tasks` WHERE `job_id` = %s ORDER BY `position`"
 _task_output_values_query = "SELECT `value` FROM `task_outputs` WHERE `task_id` = %s ORDER BY `position`"
 _int_typename = "int"
+_int_list_typename = "std::vector<int>"
 _string_typename = "string"
 _clp_compress_task_path = "/path/to/compression_task.py"
 
@@ -35,7 +36,7 @@ def submit_job(db_conn, db_cursor, client_id, task_params) -> Optional[uuid.UUID
         db_cursor.executemany(_task_insert_query, [(task_ids[i], job_id, "clp_compress", "ready", 0, 0) for i in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 0, _int_typename, msgpack.packb(task_param["job_id"])) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 1, _int_typename, msgpack.packb(task_param["task_id"])) for i, task_param in enumerate(task_params)])
-        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, _string_typename, msgpack.packb(task_param["tag_ids"])) for i, task_param in enumerate(task_params)])
+        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, _int_list_typename, msgpack.packb(task_param["tag_ids"])) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 3, _string_typename, msgpack.packb(task_param["clp_io_config_json"])) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 4, _string_typename, msgpack.packb(task_param["paths_to_compression_json"])) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 5, _string_typename, msgpack.packb(task_param["clp_metadata_db_connection_config"])) for i, task_param in enumerate(task_params)])
