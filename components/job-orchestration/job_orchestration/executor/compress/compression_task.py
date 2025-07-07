@@ -7,7 +7,6 @@ import subprocess
 from contextlib import closing
 from typing import Any, Dict, List, Optional, Tuple
 
-import msgpack
 import yaml
 from celery.app.task import Task
 from celery.utils.log import get_task_logger
@@ -550,7 +549,7 @@ if __name__ == "__main__":
     2. `--input-pipe-write`: The file descriptor of write end of the input pipe. This will be closed immediately.
     3. `--output-pipe-read`: The file descriptor of the read end of output pipe. This will be closed immediately.
     4. `--output-pipe-write`: The file descriptor of the write end of output pipe. This will be used to write the output results.
-    The input parameters are expected to be in msgpack format, containing the following fields in order:
+    The input parameters are expected to be in json format, containing the following fields in a dict:
     1. `job_id`: The ID of the compression job.
     2. `task_id`: The ID of the compression task.
     3. `tag_ids`: A list of tag IDs to associate with the compression task.
@@ -575,14 +574,14 @@ if __name__ == "__main__":
     os.close(args.output_pipe_read)
 
     # Read input parameters from input pipe (msgpack)
-    with os.fdopen(args.input_pipe_read, "rb") as input_pipe:
-        unpacker = msgpack.Unpacker(input_pipe, raw=False, use_list=True)
-        job_id = unpacker.unpack()
-        task_id = unpacker.unpack()
-        tag_ids = unpacker.unpack()
-        clp_io_config_json = unpacker.unpack()
-        paths_to_compress_json = unpacker.unpack()
-        clp_metadata_db_connection_config = unpacker.unpack()
+    with os.fdopen(args.input_pipe_read, "r") as input_pipe:
+        param = json.load(input_pipe)
+        job_id = param["job_id"]
+        task_id = param["task_id"]
+        tag_ids = param["tag_ids"]
+        clp_io_config_json = param["clp_io_config_json"]
+        paths_to_compress_json = param["paths_to_compress_json"]
+        clp_metadata_db_connection_config = param["clp_metadata_db_connection_config"]
     clp_metadata_db_connection_config = json.loads(clp_metadata_db_connection_config)
 
     # Run compression task
