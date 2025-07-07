@@ -71,15 +71,9 @@ if (PROJECT_IS_TOP_LEVEL)
     include(${CMAKE_CURRENT_SOURCE_DIR}/../../build/deps/cpp-deps/cmake-settings/all.cmake)
 endif()
 
-find_package(Catch2 3.8.0 REQUIRED)
-if(Catch2_FOUND)
-    message(STATUS "Found Catch2 ${Catch2_VERSION}.")
-else()
-    message(FATAL_ERROR "Could not find libraries for Catch2.")
-endif()
+find_package(nlohmann_json REQUIRED)
+message(STATUS "Found nlohmann_json: ${nlohmann_json_VERSION}")
 
 add_subdirectory(submodules/spider)
 
 add_subdirectory(src/orchestration)
-
-add_subdirectory(tests)

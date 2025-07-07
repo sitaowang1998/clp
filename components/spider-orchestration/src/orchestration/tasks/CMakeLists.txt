@@ -17,4 +17,9 @@ target_include_directories(
     compression_task
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../..
 )
-target_link_libraries(compression_task PUBLIC spider::spider)
+target_link_libraries(
+    compression_task
+    PUBLIC
+    spider::spider
+    nlohmann_json::nlohmann_json
+)
