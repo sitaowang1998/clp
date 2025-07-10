@@ -573,7 +573,7 @@ if __name__ == "__main__":
     os.close(args.input_pipe_write)
     os.close(args.output_pipe_read)
 
-    # Read input parameters from input pipe (msgpack)
+    # Read input parameters from input pipe (json)
     with os.fdopen(args.input_pipe_read, "r") as input_pipe:
         param = json.load(input_pipe)
         job_id = param["job_id"]
@@ -595,6 +595,6 @@ if __name__ == "__main__":
         clp_metadata_db_connection_config,
     )
 
-    # Write result to output pipe (msgpack)
+    # Write result to output pipe (json)
     with os.fdopen(args.output_pipe_write, "w") as output_pipe:
         json.dump(result, output_pipe)
