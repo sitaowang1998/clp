@@ -14,9 +14,9 @@ _task_insert_output_task_query = "INSERT INTO `output_tasks` (`job_id`, `task_id
 _job_status_query = "SELECT `state` FROM `jobs` WHERE `id` = %s"
 _job_output_tasks_query = "SELECT `task_id` FROM `output_tasks` WHERE `job_id` = %s ORDER BY `position`"
 _task_output_values_query = "SELECT `value` FROM `task_outputs` WHERE `task_id` = %s ORDER BY `position`"
-_int_typename = "int"
-_int_list_typename = "std::vector<int>"
-_string_typename = "string"
+_int_typename = "i"
+_int_list_typename = "St6vectorIiSaIiEE"
+_string_typename = "NSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE"
 _clp_compress_task_path = "/path/to/compression_task.py"
 
 def submit_job(db_conn, db_cursor, client_id, task_params) -> Optional[uuid.UUID]:
