@@ -40,13 +40,13 @@ auto compress(
     }
     if (pid == 0) {
         // Child process
-        auto args = {
+        std::array<std::string, 8> args = {
             "--input-pipe-read", std::to_string(input_pipe[0]),
             "--input-pipe-write", std::to_string(input_pipe[1]),
             "--output-pipe-read", std::to_string(output_pipe[0]),
             "--output-pipe-write", std::to_string(output_pipe[1])
         };
-        auto args_cstr = std::array<char const*, 6>;
+        auto args_cstr = std::array<char const*, 8>{};
         for (size_t i = 0; i < args_cstr.size(); ++i) {
             args_cstr[i] = args[i].c_str();
         }
