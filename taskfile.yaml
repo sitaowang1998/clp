@@ -281,7 +281,7 @@ tasks:
     internal: true
     sources: *spider-orchestration_source_files
     generates:
-      - "{{.G_SPIDER_ORCHESTRATION_COMPONENT_BUILD_DIR}}/compression_task.so"
+      - "{{.G_SPIDER_ORCHESTRATION_COMPONENT_BUILD_DIR}}/src/orchestration/tasks/libcompression_task.so"
     cmds:
       - task: "utils:cmake:build"
         vars:

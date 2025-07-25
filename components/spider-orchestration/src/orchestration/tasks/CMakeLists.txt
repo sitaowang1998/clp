@@ -10,7 +10,7 @@ set(COMPRESSION_TASK_HEADERS
     "Header files for compression task"
 )
 
-add_library(compression_task)
+add_library(compression_task SHARED)
 target_sources(compression_task PRIVATE ${COMPRESSION_TASK_SOURCES})
 target_sources(compression_task PUBLIC ${COMPRESSION_TASK_HEADERS})
 target_include_directories(
