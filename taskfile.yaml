@@ -281,13 +281,12 @@ tasks:
     internal: true
     sources: *spider-orchestration_source_files
     generates:
-      - "{{.G_CORE_COMPONENT_BUILD_DIR}}/compression_client"
-      - "{{.G_CORE_COMPONENT_BUILD_DIR}}/compression_task"
+      - "{{.G_SPIDER_ORCHESTRATION_COMPONENT_BUILD_DIR}}/compression_task.so"
     cmds:
       - task: "utils:cmake:build"
         vars:
-          BUILD_DIR: "{{.G_CORE_COMPONENT_BUILD_DIR}}"
-          TARGETS: ["compression_task", "compression_client"]
+          BUILD_DIR: "{{.G_SPIDER_ORCHESTRATION_COMPONENT_BUILD_DIR}}"
+          TARGETS: ["compression_task"]
 
   clp-package-utils:
     - task: "python-component"
