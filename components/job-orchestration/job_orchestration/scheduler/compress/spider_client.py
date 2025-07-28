@@ -99,21 +99,24 @@ def poll_result(db_conn, db_cursor, job_id: uuid.UUID):
         db_conn.commit()
         return None
 
-    db_cursor.execute(_job_output_tasks_query, (job_id.bytes,))
-    output_tasks = db_cursor.fetchall()
+    result = dict()
+    result["start_time"] = job_status[1]
 
     try:
-        output_values = dict()
+        db_cursor.execute(_job_output_tasks_query, (job_id.bytes,))
+        output_tasks = db_cursor.fetchall()
+
+        result["output"] = []
         for task in output_tasks:
             task_id = task[0]
             db_cursor.execute(_task_output_values_query, (task_id,))
             value = db_cursor.fetchone()
-            output_values["output"] = json.loads(msgpack.unpackb(value[0]))
-            output_values["start_time"] = value[1]
+            result["output"].append(json.loads(msgpack.unpackb(value[0])))
     except Exception as e:
+        print(f"Error getting output values: {e}")
         db_conn.commit()
-        return dict
+        return dict()
 
     db_conn.commit()
-    return output_values
+    return result
 
