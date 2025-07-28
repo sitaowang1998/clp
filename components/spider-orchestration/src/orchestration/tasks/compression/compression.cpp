@@ -50,19 +50,27 @@ auto clp_compress(
     if (pid == 0) {
         // Child process
         std::array<std::string, 8> args = {
+            "-m", "job_orchestration.executor.compress.compress_task",
             "--input-pipe-read", std::to_string(input_pipe[0]),
             "--input-pipe-write", std::to_string(input_pipe[1]),
             "--output-pipe-read", std::to_string(output_pipe[0]),
             "--output-pipe-write", std::to_string(output_pipe[1])
         };
-        auto args_cstr = std::array<char const*, 8>{};
+        auto args_cstr = std::array<char const*, 10>{};
         for (size_t i = 0; i < args_cstr.size(); ++i) {
             args_cstr[i] = args[i].c_str();
         }
 
-        execvp(
-            clp_compression_task_path.c_str(),
-            const_cast<char *const *>(args_cstr.data())
+        std::string python_env = "PYTHONPATH=" + clp_compression_task_path;
+        char *envp[] = {
+            const_cast<char *>(python_env.c_str()),
+            nullptr
+        };
+
+        execve(
+            "python3",
+            const_cast<char *const *>(args_cstr.data()),
+            envp
         );
 
         // If execvp fails, exit with an error code
@@ -79,7 +87,6 @@ auto clp_compress(
         {"clp_io_config_json", clp_io_config_json},
         {"paths_to_compression_json", paths_to_compression_json},
         {"clp_metadata_db_connection_config", clp_metadata_db_connection_config},
-        {"clp_compression_task_path", clp_compression_task_path}
     };
 
     std::string input_str = input_json.dump();
