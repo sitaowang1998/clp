@@ -5,7 +5,7 @@
 #include <vector>
 
 #include <nlohmann/json.hpp>
-#include <spider/client/spider.hppkk>
+#include <spider/client/spider.hpp>
 
 namespace orchestration::compression {
 auto clp_compress(
