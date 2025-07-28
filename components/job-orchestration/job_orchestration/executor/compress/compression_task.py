@@ -1,6 +1,7 @@
 import argparse
 import datetime
 import json
+import logging
 import os
 import pathlib
 import subprocess
@@ -40,9 +41,8 @@ from job_orchestration.scheduler.job_config import (
 from job_orchestration.scheduler.scheduler_data import CompressionTaskResult
 
 # Setup logging
-logger = get_task_logger(__name__)
-
-
+logger = logging
+logger.basicConfig(filename="/mnt/SSD-4T/sitao/clp-spider/build/clp-package/var/log/compression_task.log", level=logging.INFO)
 def update_compression_task_metadata(db_cursor, task_id, kv):
     if not len(kv):
         raise ValueError("Must specify at least one field to update")
@@ -374,7 +374,7 @@ def run_clp(
                         s3_put(s3_config, archive_path, archive_id)
                         logger.info(f"Finished uploading archive {archive_id} to S3.")
                     except Exception as err:
-                        logger.exception(f"Failed to upload archive {archive_id}")
+                        logger.critical(f"Failed to upload archive {archive_id}")
                         s3_error = str(err)
                         # NOTE: It's possible `proc` finishes before we call `terminate` on it, in
                         # which case the process will still return success.
@@ -415,7 +415,7 @@ def run_clp(
                             check=True,
                         )
                     except subprocess.CalledProcessError:
-                        logger.exception("Failed to index archive.")
+                        logger.critical("Failed to index archive.")
 
             if enable_s3_write:
                 archive_path.unlink()
@@ -479,7 +479,7 @@ def compress(
         )
     except Exception as ex:
         error_msg = "Failed to load worker config"
-        logger.exception(error_msg)
+        logger.critical(error_msg)
         return CompressionTaskResult(
             task_id=task_id,
             status=CompressionTaskStatus.FAILED,
@@ -562,6 +562,7 @@ if __name__ == "__main__":
     3. `duration`: The duration of the compression task in seconds.
     4. `error_message`: The error message if the compression task failed, otherwise the field will be omitted.
     """
+    logger.info("Start compression task")
     parser = argparse.ArgumentParser(description="Run compression task")
     parser.add_argument("--input-pipe-read", type=int, required=True)
     parser.add_argument("--input-pipe-write", type=int, required=True)
@@ -574,6 +575,7 @@ if __name__ == "__main__":
     os.close(args.output_pipe_read)
 
     # Read input parameters from input pipe (json)
+    logger.info("Read input parameters from input pipe")
     with os.fdopen(args.input_pipe_read, "r") as input_pipe:
         param = json.load(input_pipe)
         job_id = param["job_id"]
@@ -588,6 +590,7 @@ if __name__ == "__main__":
         clp_metadata_db_connection_config = param["clp_metadata_db_connection_config"]
     clp_metadata_db_connection_config = json.loads(clp_metadata_db_connection_config)
 
+    logger.info(f"Start compression task")
     # Run compression task
     result = compress(
         None,  # self is not used in compress
@@ -600,5 +603,6 @@ if __name__ == "__main__":
     )
 
     # Write result to output pipe (json)
+    logger.info("Write output result to output pipe")
     with os.fdopen(args.output_pipe_write, "w") as output_pipe:
         json.dump(result, output_pipe)
