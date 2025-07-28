@@ -315,6 +315,7 @@ def search_and_schedule_new_tasks(
         spider_job_id = submit_job(spider_db_conn, spider_db_cursor, task_params)
         if spider_job_id is None:
             logger.error("Failed to submit job to spider")
+            db_conn.rollback()
 
         job = CompressionJob(
             id=job_id, start_time=start_time, spider_job_id = spider_job_id,
