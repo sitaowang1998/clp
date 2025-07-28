@@ -95,7 +95,7 @@ def poll_result(db_conn, job_id: uuid.UUID):
     db_cursor = db_conn.cursor()
     try:
         db_cursor.execute(_job_status_query, (job_id.bytes,))
-        job_status = db_cursor.fetchone()
+        job_status = db_cursor.fetchall()[0]
         db_conn.commit()
         db_cursor.close()
     except mariadb.Error as e:
