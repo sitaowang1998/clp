@@ -163,7 +163,6 @@ def search_and_schedule_new_tasks(
     db_conn,
     db_cursor,
     spider_db_conn,
-    spider_db_cursor,
     clp_metadata_db_connection_config: Dict[str, Any],
     clp_storage_engine: StorageEngine,
     clp_archive_output: ArchiveOutput,
@@ -312,7 +311,7 @@ def search_and_schedule_new_tasks(
             task["task_id"] = db_cursor.lastrowid
             task["tag_ids"] = tag_ids
             task_params.append(task)
-        spider_job_id = submit_job(spider_db_conn, spider_db_cursor, task_params)
+        spider_job_id = submit_job(spider_db_conn, task_params)
         if spider_job_id is None:
             logger.error("Failed to submit job to spider")
             db_conn.rollback()
@@ -331,7 +330,7 @@ def search_and_schedule_new_tasks(
         scheduled_jobs[job_id] = job
 
 
-def poll_running_jobs(db_conn, db_cursor, spider_db_conn, spider_db_cursor):
+def poll_running_jobs(db_conn, db_cursor, spider_db_conn):
     """
     Poll for running jobs and update their status.
     """
@@ -345,7 +344,7 @@ def poll_running_jobs(db_conn, db_cursor, spider_db_conn, spider_db_cursor):
         error_message = ""
 
         try:
-            returned_results = poll_result(spider_db_conn, spider_db_cursor, job.spider_job_id)
+            returned_results = poll_result(spider_db_conn, job.spider_job_id)
             if returned_results is None:
                 continue
 
@@ -430,7 +429,7 @@ def main(argv):
     with closing(sql_adapter.create_connection(True)) as db_conn, closing(
         db_conn.cursor(dictionary=True)
     ) as db_cursor:
-        spider_db_conn, spider_db_cursor = create_db_connection()
+        spider_db_conn = create_db_connection()
 
         clp_metadata_db_connection_config = (
             sql_adapter.database_config.get_clp_connection_params_and_type(True)
@@ -449,13 +448,12 @@ def main(argv):
                     db_conn,
                     db_cursor,
                     spider_db_conn,
-                    spider_db_cursor,
                     clp_metadata_db_connection_config,
                     clp_storage_engine,
                     clp_config.archive_output,
                     existing_datasets,
                 )
-                poll_running_jobs(db_conn, db_cursor, spider_db_conn, spider_db_cursor)
+                poll_running_jobs(db_conn, db_cursor, spider_db_conn)
                 time.sleep(clp_config.compression_scheduler.jobs_poll_delay)
             except KeyboardInterrupt:
                 logger.info("Gracefully shutting down")
