@@ -88,7 +88,7 @@ def poll_result(db_conn, db_cursor, job_id: uuid.UUID):
     :return: Job output values if the job is completed. If parsing values fails, return an empty
              dict. None if the job is not found or not completed.
     """
-    db_cursor.execute(_job_status_query, (job_id,))
+    db_cursor.execute(_job_status_query, (job_id.bytes,))
     job_status = db_cursor.fetchone()
 
     if not job_status:
