@@ -46,6 +46,7 @@ from job_orchestration.scheduler.scheduler_data import (
 from job_orchestration.scheduler.compress.spider_client import (
     submit_job,
     poll_result,
+    create_db_connection,
 )
 from pydantic import ValidationError
 
@@ -314,7 +315,6 @@ def search_and_schedule_new_tasks(
         spider_job_id = submit_job(spider_db_conn, spider_db_cursor, task_params)
         if spider_job_id is None:
             logger.error("Failed to submit job to spider")
-            db_conn.rollack()
 
         job = CompressionJob(
             id=job_id, start_time=start_time, spider_job_id = spider_job_id,
@@ -429,6 +429,8 @@ def main(argv):
     with closing(sql_adapter.create_connection(True)) as db_conn, closing(
         db_conn.cursor(dictionary=True)
     ) as db_cursor:
+        spider_db_conn, spider_db_cursor = create_db_connection()
+
         clp_metadata_db_connection_config = (
             sql_adapter.database_config.get_clp_connection_params_and_type(True)
         )
@@ -445,6 +447,8 @@ def main(argv):
                 search_and_schedule_new_tasks(
                     db_conn,
                     db_cursor,
+                    spider_db_conn,
+                    spider_db_cursor,
                     clp_metadata_db_connection_config,
                     clp_storage_engine,
                     clp_config.archive_output,
