@@ -47,7 +47,7 @@ def create_db_connection():
         return db_conn
     except mariadb.Error as e:
         print(f"Error connecting to MariaDB Platform: {e}")
-        return None, None
+        return None
 
 
 def submit_job(db_conn, task_params) -> Optional[uuid.UUID]:
