@@ -42,23 +42,25 @@ def create_db_connection():
         )
         db_cursor = db_conn.cursor()
         db_cursor.execute(_create_driver_query, (_spider_client_id,))
-        return db_conn, db_cursor
+        db_cursor.close()
+        db_conn.commit()
+        return db_conn
     except mariadb.Error as e:
         print(f"Error connecting to MariaDB Platform: {e}")
         return None, None
 
 
-def submit_job(db_conn, db_cursor, task_params) -> Optional[uuid.UUID]:
+def submit_job(db_conn, task_params) -> Optional[uuid.UUID]:
     """
     Submit compression tasks to the Spider database.
     :param db_conn:
-    :param db_cursor:
     :param task_params: List of dictionaries containing task parameters.
     :return: Job IDs for the submitted tasks. None if submission fails.
     """
     job_id = uuid.uuid4()
     task_ids = [uuid.uuid4().bytes for _ in range(len(task_params))]
 
+    db_cursor = db_conn.cursor()
     try:
         db_cursor.execute(_job_insert_query, (job_id.bytes, _spider_client_id))
         db_cursor.executemany(_task_insert_query, [(task_ids[i], job_id.bytes, "clp_compress", "ready", 0, 0) for i in range(len(task_params))])
@@ -73,38 +75,51 @@ def submit_job(db_conn, db_cursor, task_params) -> Optional[uuid.UUID]:
         db_cursor.executemany(_task_insert_input_task_query, [(job_id.bytes, task_ids[i], i) for i in range(len(task_params))])
         db_cursor.executemany(_task_insert_output_task_query, [(job_id.bytes, task_ids[i], i) for i in range(len(task_params))])
         db_conn.commit()
+        db_cursor.close()
     except Exception as e:
         print(f"Error submitting job: {e}")
         db_conn.rollback()
+        db_cursor.close()
         return None
 
     return job_id
 
-def poll_result(db_conn, db_cursor, job_id: uuid.UUID):
+def poll_result(db_conn, job_id: uuid.UUID):
     """
     Poll the result of a job by its ID.
     :param db_conn:
-    :param db_cursor:
     :param job_id:
     :return: Job output values if the job is completed. If parsing values fails, return an empty
              list. None if the job is not found or not completed.
     """
+    db_cursor = db_conn.cursor()
     try:
         db_cursor.execute(_job_status_query, (job_id.bytes,))
         job_status = db_cursor.fetchone()
+        db_conn.commit()
+        db_cursor.close()
     except mariadb.Error as e:
         print(f"Error fetching job status: {e}")
         db_conn.commit()
+        db_cursor.close()
         return None
 
     if not job_status:
         db_conn.commit()
+        db_cursor.close()
         return None
 
-    if job_status[0] != "completed":
+    if job_status[0] == "running":
         db_conn.commit()
+        db_cursor.close()
         return None
 
+    if job_status[0] != "success":
+        db_conn.commit()
+        db_cursor.close()
+        return []
+
+    db_cursor = db_conn.cursor()
     try:
         db_cursor.execute(_job_output_tasks_query, (job_id.bytes,))
         output_tasks = db_cursor.fetchall()
@@ -118,8 +133,10 @@ def poll_result(db_conn, db_cursor, job_id: uuid.UUID):
     except Exception as e:
         print(f"Error getting output values: {e}")
         db_conn.commit()
+        db_cursor.close()
         return []
 
     db_conn.commit()
+    db_cursor.close()
     return result
 
