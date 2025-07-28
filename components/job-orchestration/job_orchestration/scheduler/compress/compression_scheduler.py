@@ -339,19 +339,19 @@ def poll_running_jobs(db_conn, db_cursor, spider_db_conn, spider_db_cursor):
 
     logger.debug("Poll running jobs")
     jobs_to_delete = []
-    for job_id, spider_job_id in scheduled_jobs.items():
+    for job_id, job in scheduled_jobs.items():
         job_success = True
         duration = 0.0
         error_message = ""
 
         try:
-            returned_results = poll_result(spider_db_conn, spider_db_cursor, spider_job_id)
+            returned_results = poll_result(spider_db_conn, spider_db_cursor, job.spider_job_id)
             if returned_results is None:
                 continue
 
-            duration = (datetime.datetime.now() - returned_results["start_time"]).total_seconds()
+            duration = (datetime.datetime.now() - job.start_time).total_seconds()
             # Check for finished jobs
-            for task_result in returned_results["output"]:
+            for task_result in returned_results:
                 task_result = CompressionTaskResult.parse_obj(task_result)
                 if task_result.status == CompressionTaskStatus.SUCCEEDED:
                     logger.info(
