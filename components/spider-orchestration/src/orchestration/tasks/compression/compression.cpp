@@ -61,16 +61,11 @@ auto clp_compress(
             args_cstr[i] = args[i].c_str();
         }
 
-        std::string python_env = "PYTHONPATH=" + clp_compression_task_path;
-        char *envp[] = {
-            const_cast<char *>(python_env.c_str()),
-            nullptr
-        };
+        setenv("PYTHONPATH", clp_compression_task_path.c_str(), 1);
 
-        execve(
+        execvp(
             "python3",
-            const_cast<char *const *>(args_cstr.data()),
-            envp
+            const_cast<char *const *>(args_cstr.data())
         );
 
         // If execvp fails, exit with an error code
