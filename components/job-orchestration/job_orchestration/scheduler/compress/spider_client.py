@@ -42,8 +42,8 @@ def create_db_connection():
         )
         db_cursor = db_conn.cursor()
         db_cursor.execute(_create_driver_query, (_spider_client_id,))
-        db_cursor.close()
         db_conn.commit()
+        db_cursor.close()
         return db_conn
     except mariadb.Error as e:
         print(f"Error connecting to MariaDB Platform: {e}")
