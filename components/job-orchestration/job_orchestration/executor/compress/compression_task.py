@@ -43,7 +43,7 @@ from job_orchestration.scheduler.scheduler_data import CompressionTaskResult
 # Setup logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-file_handler = logging.FileHandler("/mnt/SSD-4T/sitao/clp-spider/build/clp-package/var/logs/compression_task.log")
+file_handler = logging.FileHandler("/mnt/SSD-4T/sitao/clp-spider/build/clp-package/var/log/compression_task.log")
 file_handler.setLevel(logging.INFO)
 logger.addHandler(file_handler)
 
