@@ -41,6 +41,7 @@ def create_db_connection():
             database=_spider_db_name
         )
         db_cursor = db_conn.cursor()
+        db_cursor.execute(_create_driver_query, (_spider_client_id,))
         return db_conn, db_cursor
     except mariadb.Error as e:
         print(f"Error connecting to MariaDB Platform: {e}")
@@ -59,7 +60,6 @@ def submit_job(db_conn, db_cursor, task_params) -> Optional[uuid.UUID]:
     task_ids = [uuid.uuid4().bytes for _ in range(len(task_params))]
 
     try:
-        db_cursor.execute(_create_driver_query, (_spider_client_id,))
         db_cursor.execute(_job_insert_query, (job_id.bytes, _spider_client_id))
         db_cursor.executemany(_task_insert_query, [(task_ids[i], job_id.bytes, "clp_compress", "ready", 0, 0) for i in range(len(task_params))])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 0, _int_typename, msgpack.packb(task_param["job_id"])) for i, task_param in enumerate(task_params)])
