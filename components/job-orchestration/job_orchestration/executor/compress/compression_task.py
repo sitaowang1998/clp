@@ -552,9 +552,9 @@ if __name__ == "__main__":
     The input parameters are expected to be in json format, containing the following fields in a dict:
     1. `job_id`: The ID of the compression job.
     2. `task_id`: The ID of the compression task.
-    3. `tag_ids`: A list of tag IDs to associate with the compression task.
+    3. `tag_ids`: A list of tag IDs to associate with the compression task. Empty list means None.
     4. `clp_io_config_json`: The JSON string of the ClpIoConfig object.
-    5. `paths_to_compress_json`: The JSON string of the PathsToCompress object.
+    5. `paths_to_compress_json`: The JSON string of the PathsToCompress object. Empty string means None.
     6. `clp_metadata_db_connection_config`: The JSON string of the database connection configuration.
     The output result will be written to the output pipe in json format, containing the following fields:
     1. `task_id`: The ID of the compression task.
@@ -579,8 +579,12 @@ if __name__ == "__main__":
         job_id = param["job_id"]
         task_id = param["task_id"]
         tag_ids = param["tag_ids"]
+        if len(tag_ids) == 0:
+            tag_ids = None
         clp_io_config_json = param["clp_io_config_json"]
         paths_to_compress_json = param["paths_to_compress_json"]
+        if len(paths_to_compress_json) == 0:
+            paths_to_compress_json = None
         clp_metadata_db_connection_config = param["clp_metadata_db_connection_config"]
     clp_metadata_db_connection_config = json.loads(clp_metadata_db_connection_config)
 
