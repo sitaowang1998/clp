@@ -128,7 +128,7 @@ def poll_result(db_conn, job_id: uuid.UUID):
         for task in output_tasks:
             task_id = task[0]
             db_cursor.execute(_task_output_values_query, (task_id,))
-            value = db_cursor.fetchone()
+            value = db_cursor.fetchall()[0]
             result.append(json.loads(msgpack.unpackb(value[0])))
     except Exception as e:
         print(f"Error getting output values: {e}")
