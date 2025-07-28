@@ -100,6 +100,6 @@ auto clp_compress(
     return output_str;
 }
 
-}  // namespace orchestration::compression
-
 SPIDER_REGISTER_TASK(clp_compress);
+
+}  // namespace orchestration::compression
