@@ -99,7 +99,7 @@ def poll_result(db_conn, db_cursor, job_id: uuid.UUID):
         db_conn.commit()
         return None
 
-    db_cursor.execute(_job_output_tasks_query, (job_id,))
+    db_cursor.execute(_job_output_tasks_query, (job_id.bytes,))
     output_tasks = db_cursor.fetchall()
 
     try:
