@@ -13,7 +13,7 @@ _task_insert_input_value_query = "INSERT INTO `task_inputs` (`task_id`, `positio
 _task_insert_output_query = "INSERT INTO `task_outputs` (`task_id`, `position`, `type`) VALUES (%s, %s, %s)"
 _task_insert_input_task_query = "INSERT INTO `input_tasks` (`job_id`, `task_id`, `position`) VALUES (%s, %s, %s)"
 _task_insert_output_task_query = "INSERT INTO `output_tasks` (`job_id`, `task_id`, `position`) VALUES (%s, %s, %s)"
-_job_status_query = "SELECT `state` FROM `jobs` WHERE `id` = %s"
+_job_status_query = "SELECT `state`, `creation_time`  FROM `jobs` WHERE `id` = %s"
 _job_output_tasks_query = "SELECT `task_id` FROM `output_tasks` WHERE `job_id` = %s ORDER BY `position`"
 _task_output_values_query = "SELECT `value` FROM `task_outputs` WHERE `task_id` = %s ORDER BY `position`"
 _int_typename = "i"
@@ -86,7 +86,7 @@ def poll_result(db_conn, db_cursor, job_id: uuid.UUID):
     :param db_cursor:
     :param job_id:
     :return: Job output values if the job is completed. If parsing values fails, return an empty
-             list. None if the job is not found or not completed.
+             dict. None if the job is not found or not completed.
     """
     db_cursor.execute(_job_status_query, (job_id,))
     job_status = db_cursor.fetchone()
@@ -103,15 +103,16 @@ def poll_result(db_conn, db_cursor, job_id: uuid.UUID):
     output_tasks = db_cursor.fetchall()
 
     try:
-        output_values = []
+        output_values = dict()
         for task in output_tasks:
             task_id = task[0]
             db_cursor.execute(_task_output_values_query, (task_id,))
             value = db_cursor.fetchone()
-            output_values = json.loads(msgpack.unpackb(value[0]))
+            output_values["output"] = json.loads(msgpack.unpackb(value[0]))
+            output_values["start_time"] = value[1]
     except Exception as e:
         db_conn.commit()
-        return []
+        return dict
 
     db_conn.commit()
     return output_values
