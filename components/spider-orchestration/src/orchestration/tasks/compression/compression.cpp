@@ -4,7 +4,9 @@
 #include <unistd.h>
 #include <vector>
 
+#include <boost/uuid.hpp>
 #include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
 #include <spider/client/spider.hpp>
 
 namespace orchestration::compression {
@@ -18,10 +20,13 @@ auto clp_compress(
     std::string const &clp_metadata_db_connection_config,
     std::string const &clp_compression_task_path
 ) -> std::string {
+    spdlog::error("Starting compression task: {}", to_string(context.get_id()));
+
     // Create an input and output pipe to communicate with the compression process
     pid_t input_pipe[2];
     auto input_pipe_result = pipe(input_pipe);
     if (input_pipe_result == -1) {
+        spdlog::error("Failed to create input pipe: {}", strerror(errno));
         return "Failed to create input pipe";
     }
     pid_t output_pipe[2];
@@ -29,6 +34,7 @@ auto clp_compress(
     if (output_pipe_result == -1) {
         close(input_pipe[0]);
         close(input_pipe[1]);
+        spdlog::error("Failed to create output pipe: {}", strerror(errno));
         return "Failed to create output pipe";
     }
 
@@ -38,6 +44,7 @@ auto clp_compress(
         close(input_pipe[1]);
         close(output_pipe[0]);
         close(output_pipe[1]);
+        spdlog::error("Failed to fork process: {}", strerror(errno));
         return "Failed to fork process";
     }
     if (pid == 0) {
@@ -80,11 +87,13 @@ auto clp_compress(
     if (bytes_written == -1) {
         close(input_pipe[1]);
         close(output_pipe[0]);
+        spdlog::error("Failed to write to input pipe: {}", strerror(errno));
         return "Failed to write to input pipe";
     }
     if (bytes_written < static_cast<ssize_t>(input_str.size())) {
         close(input_pipe[1]);
         close(output_pipe[0]);
+        spdlog::error("Partial write to input pipe: {} bytes written, expected {}", bytes_written, input_str.size());
         return "Partial write to input pipe";
     }
     std::string output_str;
@@ -97,6 +106,7 @@ auto clp_compress(
 
     close(input_pipe[1]);
     close(output_pipe[0]);
+    spdlog::error("Compression task finished: {}", to_string(context.get_id()));
     return output_str;
 }
 

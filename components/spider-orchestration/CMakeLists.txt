@@ -74,6 +74,9 @@ endif()
 find_package(nlohmann_json REQUIRED)
 message(STATUS "Found nlohmann_json: ${nlohmann_json_VERSION}")
 
+find_package(spdlog REQUIRED)
+message(STATUS "Found spdlog: ${spdlog_VERSION}")
+
 add_subdirectory(submodules/spider)
 
 add_subdirectory(src/orchestration)

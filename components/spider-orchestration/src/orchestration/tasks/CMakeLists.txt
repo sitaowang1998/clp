@@ -22,4 +22,5 @@ target_link_libraries(
     PUBLIC
     spider::spider
     nlohmann_json::nlohmann_json
+    spdlog::spdlog
 )
