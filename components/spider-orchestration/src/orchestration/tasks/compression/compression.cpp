@@ -9,7 +9,7 @@
 
 namespace orchestration::compression {
 auto clp_compress(
-    spdier::TaskContext& context,
+    spider::TaskContext& context,
     int job_id,
     int task_id,
     std::vector<int> const &tag_ids,
