@@ -173,7 +173,6 @@ def search_and_schedule_new_tasks(
     :param db_conn:
     :param db_cursor:
     :param spider_db_conn:
-    :param spider_db_cursor:
     :param clp_metadata_db_connection_config:
     :param clp_storage_engine:
     :param clp_archive_output:
