@@ -286,7 +286,7 @@ tasks:
       - task: "utils:cmake:build"
         vars:
           BUILD_DIR: "{{.G_SPIDER_ORCHESTRATION_COMPONENT_BUILD_DIR}}"
-          TARGETS: ["compression_task"]
+          TARGETS: ["compression_task", "spider_scheduler", "spider_worker"]
 
   clp-package-utils:
     - task: "python-component"
