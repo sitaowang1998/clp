@@ -72,6 +72,7 @@ def submit_job(db_conn, db_cursor, task_params) -> Optional[uuid.UUID]:
         db_cursor.executemany(_task_insert_output_query, [(task_ids[i], 0, _string_typename) for i in range(len(task_params))])
         db_cursor.executemany(_task_insert_input_task_query, [(job_id.bytes, task_ids[i], i) for i in range(len(task_params))])
         db_cursor.executemany(_task_insert_output_task_query, [(job_id.bytes, task_ids[i], i) for i in range(len(task_params))])
+        db_conn.commit()
     except Exception as e:
         print(f"Error submitting job: {e}")
         db_conn.rollback()
@@ -88,8 +89,13 @@ def poll_result(db_conn, db_cursor, job_id: uuid.UUID):
     :return: Job output values if the job is completed. If parsing values fails, return an empty
              list. None if the job is not found or not completed.
     """
-    db_cursor.execute(_job_status_query, (job_id.bytes,))
-    job_status = db_cursor.fetchone()
+    try:
+        db_cursor.execute(_job_status_query, (job_id.bytes,))
+        job_status = db_cursor.fetchone()
+    except mariadb.Error as e:
+        print(f"Error fetching job status: {e}")
+        db_conn.commit()
+        return None
 
     if not job_status:
         db_conn.commit()
