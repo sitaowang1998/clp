@@ -5,9 +5,11 @@
 #include <vector>
 
 #include <nlohmann/json.hpp>
+#include <spider/client/spider.hppkk>
 
 namespace orchestration::compression {
-auto compress(
+auto clp_compress(
+    spdier::TaskContext& context,
     int job_id,
     int task_id,
     std::vector<int> const &tag_ids,
@@ -99,3 +101,5 @@ auto compress(
 }
 
 }  // namespace orchestration::compression
+
+SPIDER_REGISTER_TASK(clp_compress);
