@@ -49,14 +49,15 @@ auto clp_compress(
     }
     if (pid == 0) {
         // Child process
-        std::array<std::string, 10> args = {
+        std::array<std::string, 11> args = {
+            "/usr/bin/python3",
             "-m", "job_orchestration.executor.compress.compress",
             "--input-pipe-read", std::to_string(input_pipe[0]),
             "--input-pipe-write", std::to_string(input_pipe[1]),
             "--output-pipe-read", std::to_string(output_pipe[0]),
             "--output-pipe-write", std::to_string(output_pipe[1])
         };
-        auto args_cstr = std::array<char const*, 10>{};
+        auto args_cstr = std::array<char const*, 11>{};
         for (size_t i = 0; i < args_cstr.size(); ++i) {
             args_cstr[i] = args[i].c_str();
         }
