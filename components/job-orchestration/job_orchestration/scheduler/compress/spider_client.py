@@ -19,7 +19,6 @@ _task_output_values_query = "SELECT `value` FROM `task_outputs` WHERE `task_id` 
 _int_typename = "i"
 _int_list_typename = "St6vectorIiSaIiEE"
 _string_typename = "NSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEE"
-_clp_compress_task_path = "/mnt/SSD-4T/sitao/clp-spider/build/clp-package/lib/python3/site-packages"
 _spider_db_host = "127.0.0.1"
 _spider_db_port = 3306
 _spider_db_name = "spider-db"
@@ -70,7 +69,6 @@ def submit_job(db_conn, task_params) -> Optional[uuid.UUID]:
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 3, _string_typename, msgpack.packb(task_param["clp_io_config_json"])) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 4, _string_typename, msgpack.packb(task_param["paths_to_compress_json"] if "paths_to_compress_json" in task_param else "")) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 5, _string_typename, msgpack.packb(json.dumps(task_param["clp_metadata_db_connection_config"]))) for i, task_param in enumerate(task_params)])
-        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 6, _string_typename, msgpack.packb(_clp_compress_task_path)) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_output_query, [(task_ids[i], 0, _string_typename) for i in range(len(task_params))])
         db_cursor.executemany(_task_insert_input_task_query, [(job_id.bytes, task_ids[i], i) for i in range(len(task_params))])
         db_cursor.executemany(_task_insert_output_task_query, [(job_id.bytes, task_ids[i], i) for i in range(len(task_params))])

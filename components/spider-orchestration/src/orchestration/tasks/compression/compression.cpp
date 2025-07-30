@@ -17,8 +17,7 @@ auto clp_compress(
     std::vector<int> const &tag_ids,
     std::string const &clp_io_config_json,
     std::string const &paths_to_compression_json,
-    std::string const &clp_metadata_db_connection_config,
-    std::string const &clp_compression_task_path
+    std::string const &clp_metadata_db_connection_config
 ) -> std::string {
     spdlog::error("Starting compression task: {}", to_string(context.get_id()));
 
@@ -60,12 +59,6 @@ auto clp_compress(
         auto args_cstr = std::array<char const*, 11>{};
         for (size_t i = 0; i < args_cstr.size(); ++i) {
             args_cstr[i] = args[i].c_str();
-        }
-
-        int res = setenv("PYTHONPATH", clp_compression_task_path.c_str(), 1);
-        if (res != 0) {
-            spdlog::error("Failed to set PYTHONPATH to {}: {}", clp_compression_task_path, strerror(errno));
-            _exit(1);
         }
 
         execvp(
