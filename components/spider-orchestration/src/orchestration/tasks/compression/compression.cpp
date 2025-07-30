@@ -50,7 +50,7 @@ auto clp_compress(
     if (pid == 0) {
         // Child process
         std::array<std::string, 10> args = {
-            "-m", "job_orchestration.executor.compress.compress_task",
+            "-m", "job_orchestration.executor.compress.compress",
             "--input-pipe-read", std::to_string(input_pipe[0]),
             "--input-pipe-write", std::to_string(input_pipe[1]),
             "--output-pipe-read", std::to_string(output_pipe[0]),

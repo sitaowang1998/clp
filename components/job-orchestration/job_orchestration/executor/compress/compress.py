@@ -9,8 +9,6 @@ from contextlib import closing
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
-from celery.app.task import Task
-from celery.utils.log import get_task_logger
 from clp_py_utils.clp_config import (
     ARCHIVE_TAGS_TABLE_SUFFIX,
     ARCHIVES_TABLE_SUFFIX,
@@ -30,7 +28,6 @@ from clp_py_utils.s3_utils import (
     s3_put,
 )
 from clp_py_utils.sql_adapter import SQL_Adapter
-from job_orchestration.executor.compress.celery import app
 from job_orchestration.scheduler.constants import CompressionTaskStatus
 from job_orchestration.scheduler.job_config import (
     ClpIoConfig,
@@ -127,8 +124,8 @@ def update_archive_metadata(db_cursor, table_prefix, archive_stats):
 
 
 def _generate_fs_logs_list(
-    output_file_path: pathlib.Path,
-    paths_to_compress: PathsToCompress,
+        output_file_path: pathlib.Path,
+        paths_to_compress: PathsToCompress,
 ) -> None:
     file_paths = paths_to_compress.file_paths
     empty_directories = paths_to_compress.empty_directories
@@ -144,9 +141,9 @@ def _generate_fs_logs_list(
 
 
 def _generate_s3_logs_list(
-    output_file_path: pathlib.Path,
-    paths_to_compress: PathsToCompress,
-    s3_input_config: S3InputConfig,
+        output_file_path: pathlib.Path,
+        paths_to_compress: PathsToCompress,
+        s3_input_config: S3InputConfig,
 ) -> None:
     # S3 object keys are stored as file_paths in `PathsToCompress`
     object_keys = paths_to_compress.file_paths
@@ -160,10 +157,10 @@ def _generate_s3_logs_list(
 
 
 def _make_clp_command_and_env(
-    clp_home: pathlib.Path,
-    archive_output_dir: pathlib.Path,
-    clp_config: ClpIoConfig,
-    db_config_file_path: pathlib.Path,
+        clp_home: pathlib.Path,
+        archive_output_dir: pathlib.Path,
+        clp_config: ClpIoConfig,
+        db_config_file_path: pathlib.Path,
 ) -> Tuple[List[str], Optional[Dict[str, str]]]:
     """
     Generates the command and environment variables for a clp compression job.
@@ -202,10 +199,10 @@ def _make_clp_command_and_env(
 
 
 def _make_clp_s_command_and_env(
-    clp_home: pathlib.Path,
-    archive_output_dir: pathlib.Path,
-    clp_config: ClpIoConfig,
-    use_single_file_archive: bool,
+        clp_home: pathlib.Path,
+        archive_output_dir: pathlib.Path,
+        clp_config: ClpIoConfig,
+        use_single_file_archive: bool,
 ) -> Tuple[List[str], Optional[Dict[str, str]]]:
     """
     Generates the command and environment variables for a clp_s compression job.
@@ -246,16 +243,16 @@ def _make_clp_s_command_and_env(
 
 
 def run_clp(
-    worker_config: WorkerConfig,
-    clp_config: ClpIoConfig,
-    clp_home: pathlib.Path,
-    logs_dir: pathlib.Path,
-    job_id: int,
-    task_id: int,
-    tag_ids,
-    paths_to_compress: PathsToCompress,
-    sql_adapter: SQL_Adapter,
-    clp_metadata_db_connection_config,
+        worker_config: WorkerConfig,
+        clp_config: ClpIoConfig,
+        clp_home: pathlib.Path,
+        logs_dir: pathlib.Path,
+        job_id: int,
+        task_id: int,
+        tag_ids,
+        paths_to_compress: PathsToCompress,
+        sql_adapter: SQL_Adapter,
+        clp_metadata_db_connection_config,
 ):
     """
     Compresses logs into archives.
@@ -367,7 +364,7 @@ def run_clp(
             stats = json.loads(line.decode("utf-8"))
 
         if last_archive_stats is not None and (
-            None is stats or stats["id"] != last_archive_stats["id"]
+                None is stats or stats["id"] != last_archive_stats["id"]
         ):
             archive_id = last_archive_stats["id"]
             archive_path = archive_output_dir / archive_id
@@ -390,7 +387,7 @@ def run_clp(
                 total_uncompressed_size += last_archive_stats["uncompressed_size"]
                 total_compressed_size += last_archive_stats["size"]
                 with closing(sql_adapter.create_connection(True)) as db_conn, closing(
-                    db_conn.cursor(dictionary=True)
+                        db_conn.cursor(dictionary=True)
                 ) as db_cursor:
                     if StorageEngine.CLP_S == clp_storage_engine:
                         update_archive_metadata(db_cursor, table_prefix, last_archive_stats)
@@ -459,15 +456,13 @@ def run_clp(
         return CompressionTaskStatus.FAILED, worker_output
 
 
-@app.task(bind=True)
 def compress(
-    self: Task,
-    job_id: int,
-    task_id: int,
-    tag_ids,
-    clp_io_config_json: str,
-    paths_to_compress_json: str,
-    clp_metadata_db_connection_config,
+        job_id: int,
+        task_id: int,
+        tag_ids,
+        clp_io_config_json: str,
+        paths_to_compress_json: str,
+        clp_metadata_db_connection_config,
 ):
     clp_home = pathlib.Path(os.getenv("CLP_HOME"))
 
@@ -514,7 +509,7 @@ def compress(
     logger.info(f"[job_id={job_id} task_id={task_id}] COMPRESSION COMPLETED.")
 
     with closing(sql_adapter.create_connection(True)) as db_conn, closing(
-        db_conn.cursor(dictionary=True)
+            db_conn.cursor(dictionary=True)
     ) as db_cursor:
         update_compression_task_metadata(
             db_cursor,
@@ -541,3 +536,71 @@ def compress(
         compression_task_result.error_message = worker_output["error_message"]
 
     return compression_task_result.dict()
+
+if __name__ == "__main__":
+    """
+    Main function to run the compression task from C++.
+    The parent process will open two pipes to communicate with this program:
+    1. A pipe to write the input parameters for the compression task.
+    2. A pipe to read the output of the compression task.
+    These pipes are passed in as command line arguments:
+    1. `--input-pipe-read`: The file descriptor of the read end of input pipe. This will be used to read the input parameters.
+    2. `--input-pipe-write`: The file descriptor of write end of the input pipe. This will be closed immediately.
+    3. `--output-pipe-read`: The file descriptor of the read end of output pipe. This will be closed immediately.
+    4. `--output-pipe-write`: The file descriptor of the write end of output pipe. This will be used to write the output results.
+    The input parameters are expected to be in json format, containing the following fields in a dict:
+    1. `job_id`: The ID of the compression job.
+    2. `task_id`: The ID of the compression task.
+    3. `tag_ids`: A list of tag IDs to associate with the compression task. Empty list means None.
+    4. `clp_io_config_json`: The JSON string of the ClpIoConfig object.
+    5. `paths_to_compress_json`: The JSON string of the PathsToCompress object. Empty string means None.
+    6. `clp_metadata_db_connection_config`: The JSON string of the database connection configuration.
+    The output result will be written to the output pipe in json format, containing the following fields:
+    1. `task_id`: The ID of the compression task.
+    2. `status`: The status of the compression task (SUCCEEDED or FAILED).
+    3. `duration`: The duration of the compression task in seconds.
+    4. `error_message`: The error message if the compression task failed, otherwise the field will be omitted.
+    """
+    logger.info("Start compression task")
+    parser = argparse.ArgumentParser(description="Run compression task")
+    parser.add_argument("--input-pipe-read", type=int, required=True)
+    parser.add_argument("--input-pipe-write", type=int, required=True)
+    parser.add_argument("--output-pipe-read", type=int, required=True)
+    parser.add_argument("--output-pipe-write", type=int, required=True)
+    args = parser.parse_args()
+
+    # Close unused pipe ends
+    os.close(args.input_pipe_write)
+    os.close(args.output_pipe_read)
+
+    # Read input parameters from input pipe (json)
+    logger.info("Read input parameters from input pipe")
+    with os.fdopen(args.input_pipe_read, "r") as input_pipe:
+        param = json.load(input_pipe)
+        job_id = param["job_id"]
+        task_id = param["task_id"]
+        tag_ids = param["tag_ids"]
+        if len(tag_ids) == 0:
+            tag_ids = None
+        clp_io_config_json = param["clp_io_config_json"]
+        paths_to_compress_json = param["paths_to_compress_json"]
+        if len(paths_to_compress_json) == 0:
+            paths_to_compress_json = None
+        clp_metadata_db_connection_config = param["clp_metadata_db_connection_config"]
+    clp_metadata_db_connection_config = json.loads(clp_metadata_db_connection_config)
+
+    logger.info(f"Start compression task")
+    # Run compression task
+    result = compress(
+        job_id,
+        task_id,
+        tag_ids,
+        clp_io_config_json,
+        paths_to_compress_json,
+        clp_metadata_db_connection_config,
+    )
+
+    # Write result to output pipe (json)
+    logger.info("Write output result to output pipe")
+    with os.fdopen(args.output_pipe_write, "w") as output_pipe:
+        json.dump(result, output_pipe)
