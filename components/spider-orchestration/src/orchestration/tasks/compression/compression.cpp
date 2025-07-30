@@ -50,7 +50,7 @@ auto clp_compress(
     if (pid == 0) {
         // Child process
         std::array<std::string, 11> args = {
-            "/usr/bin/python3",
+            "python3",
             "-m", "job_orchestration.executor.compress.compress",
             "--input-pipe-read", std::to_string(input_pipe[0]),
             "--input-pipe-write", std::to_string(input_pipe[1]),
@@ -69,7 +69,7 @@ auto clp_compress(
         }
 
         execvp(
-            "/usr/bin/python3",
+            "python3",
             const_cast<char *const *>(args_cstr.data())
         );
 
