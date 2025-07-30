@@ -171,6 +171,8 @@ def _make_clp_command_and_env(
     :return: Tuple of (compression_command, compression_env_vars)
     """
 
+    path_prefix_to_remove = clp_config.input.path_prefix_to_remove
+
     # fmt: off
     compression_cmd = [
         str(clp_home / "bin" / "clp"),
@@ -183,6 +185,9 @@ def _make_clp_command_and_env(
         "--db-config-file", str(db_config_file_path),
     ]
     # fmt: on
+    if path_prefix_to_remove:
+        compression_cmd.append("--remove-path-prefix")
+        compression_cmd.append(path_prefix_to_remove)
 
     # Use schema file if it exists
     schema_path: pathlib.Path = clp_home / "etc" / "clp-schema.txt"
