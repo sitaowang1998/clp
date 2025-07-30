@@ -87,7 +87,7 @@ auto clp_compress(
         {"task_id", task_id},
         {"tag_ids", tag_ids},
         {"clp_io_config_json", clp_io_config_json},
-        {"paths_to_compression_json", paths_to_compression_json},
+        {"paths_to_compress_json", paths_to_compression_json},
         {"clp_metadata_db_connection_config", clp_metadata_db_connection_config},
     };
 

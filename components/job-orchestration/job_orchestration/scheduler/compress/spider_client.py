@@ -68,7 +68,7 @@ def submit_job(db_conn, task_params) -> Optional[uuid.UUID]:
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 1, _int_typename, msgpack.packb(task_param["task_id"])) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 2, _int_list_typename, msgpack.packb(task_param["tag_ids"] if task_param["tag_ids"] is not None else [])) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 3, _string_typename, msgpack.packb(task_param["clp_io_config_json"])) for i, task_param in enumerate(task_params)])
-        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 4, _string_typename, msgpack.packb(task_param["paths_to_compression_json"] if "paths_to_compression_json" in task_param else "")) for i, task_param in enumerate(task_params)])
+        db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 4, _string_typename, msgpack.packb(task_param["paths_to_compress_json"] if "paths_to_compress_json" in task_param else "")) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 5, _string_typename, msgpack.packb(json.dumps(task_param["clp_metadata_db_connection_config"]))) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_input_value_query, [(task_ids[i], 6, _string_typename, msgpack.packb(_clp_compress_task_path)) for i, task_param in enumerate(task_params)])
         db_cursor.executemany(_task_insert_output_query, [(task_ids[i], 0, _string_typename) for i in range(len(task_params))])
