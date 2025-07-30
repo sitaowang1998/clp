@@ -68,7 +68,7 @@ auto clp_compress(
         }
 
         execvp(
-            "python3",
+            "/usr/bin/python3",
             const_cast<char *const *>(args_cstr.data())
         );
 
