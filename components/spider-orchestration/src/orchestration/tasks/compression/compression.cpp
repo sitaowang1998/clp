@@ -61,12 +61,18 @@ auto clp_compress(
             args_cstr[i] = args[i].c_str();
         }
 
-        setenv("PYTHONPATH", clp_compression_task_path.c_str(), 1);
+        int res = setenv("PYTHONPATH", clp_compression_task_path.c_str(), 1);
+        if (res != 0) {
+            spdlog::error("Failed to set PYTHONPATH to {}: {}", clp_compression_task_path, strerror(errno));
+            _exit(1);
+        }
 
         execvp(
             "python3",
             const_cast<char *const *>(args_cstr.data())
         );
+
+        spdlog::error("Failed to execute python task: {}", strerror(errno));
 
         // If execvp fails, exit with an error code
         _exit(1);
