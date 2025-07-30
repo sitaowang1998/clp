@@ -105,6 +105,8 @@ auto clp_compress(
         spdlog::error("Partial write to input pipe: {} bytes written, expected {}", bytes_written, input_str.size());
         return "Partial write to input pipe";
     }
+    close(input_pipe[1]);
+
     std::string output_str;
     char buffer[4096];
     ssize_t bytes_read;
@@ -112,8 +114,6 @@ auto clp_compress(
         buffer[bytes_read] = '\0';  // Null-terminate the string
         output_str += buffer;
     }
-
-    close(input_pipe[1]);
     close(output_pipe[0]);
     spdlog::error("Compression task finished: {}", to_string(context.get_id()));
     return output_str;
