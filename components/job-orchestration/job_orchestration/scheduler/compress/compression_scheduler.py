@@ -310,6 +310,7 @@ def search_and_schedule_new_tasks(
             task["task_id"] = db_cursor.lastrowid
             task["tag_ids"] = tag_ids
             task_params.append(task)
+        logger.info("Submit tasks to spider")
         spider_job_id = submit_job(spider_db_conn, task_params)
         if spider_job_id is None:
             logger.error("Failed to submit job to spider")
