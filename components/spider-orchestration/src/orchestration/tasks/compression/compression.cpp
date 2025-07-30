@@ -61,6 +61,13 @@ auto clp_compress(
             args_cstr[i] = args[i].c_str();
         }
 
+        char* const env = std::getenv("PYTHONPATH");
+        if (env) {
+            spdlog::error("PYTHONPATH: {}", env);
+        } else {
+            spdlog::error("PYTHONPATH not set");
+        }
+
         execvp(
             "python3",
             const_cast<char *const *>(args_cstr.data())
