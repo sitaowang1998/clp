@@ -39,7 +39,7 @@ EXTRACT_JSON_CMD = "j"
 # Paths
 CONTAINER_AWS_CONFIG_DIRECTORY = pathlib.Path("/") / ".aws"
 CONTAINER_CLP_HOME = pathlib.Path("/") / "opt" / "clp"
-CONTAINER_INPUT_LOGS_ROOT_DIR = pathlib.Path("/")
+CONTAINER_INPUT_LOGS_ROOT_DIR = pathlib.Path("/") / "mnt" / "logs"
 CLP_DEFAULT_CONFIG_FILE_RELATIVE_PATH = pathlib.Path("etc") / "clp-config.yml"
 
 DOCKER_MOUNT_TYPE_STRINGS = ["bind"]
