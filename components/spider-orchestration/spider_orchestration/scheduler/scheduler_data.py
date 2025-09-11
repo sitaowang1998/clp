@@ -5,11 +5,11 @@ from abc import ABC, abstractmethod
 from enum import auto, Enum
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, validator
 from spider_orchestration.scheduler.constants import (
     CompressionTaskStatus,
 )
 from spider_py import Job as SpiderJob
-from pydantic import BaseModel, validator
 
 
 class CompressionJob(BaseModel):

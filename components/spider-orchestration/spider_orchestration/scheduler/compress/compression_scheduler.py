@@ -29,6 +29,7 @@ from clp_py_utils.compression import validate_path_and_get_info
 from clp_py_utils.core import read_yaml_config_file
 from clp_py_utils.s3_utils import s3_get_object_metadata
 from clp_py_utils.sql_adapter import SQL_Adapter
+from pydantic import ValidationError
 from spider_orchestration.executor.compress.compression_task import compress
 from spider_orchestration.scheduler.compress.partition import PathsToCompressBuffer
 from spider_orchestration.scheduler.constants import (
@@ -47,8 +48,9 @@ from spider_orchestration.scheduler.scheduler_data import (
     CompressionTaskResult,
 )
 from spider_orchestration.scheduler.utils import kill_hanging_jobs
-from pydantic import ValidationError
-from spider_py import Driver as SpiderDriver, group as spider_group, JobStatus as SpiderJobStatus
+from spider_py import Driver as SpiderDriver
+from spider_py import group as spider_group
+from spider_py import JobStatus as SpiderJobStatus
 
 # Setup logging
 logger = get_logger("compression_scheduler")
@@ -307,21 +309,21 @@ def search_and_schedule_new_tasks(
             db_conn.commit()
             task["task_id"] = db_cursor.lastrowid
             task["tag_ids"] = tag_ids
-            task_params.extend([
-                task["job_id"],
-                task["task_id"],
-                task["tag_ids"],
-                task["clp_io_config_json"],
-                task["paths_to_compress_json"],
-                task["clp_metadata_db_connection_config"],
-            ])
-        jobs = spider_driver.submit_jobs([
-            spider_group([compress for _ in range(len(task_params))])
-        ], [task_params])
-
-        job = CompressionJob(
-            id=job_id, start_time=start_time, spider_job=jobs[0]
+            task_params.extend(
+                [
+                    task["job_id"],
+                    task["task_id"],
+                    task["tag_ids"],
+                    task["clp_io_config_json"],
+                    task["paths_to_compress_json"],
+                    task["clp_metadata_db_connection_config"],
+                ]
+            )
+        jobs = spider_driver.submit_jobs(
+            [spider_group([compress for _ in range(len(task_params))])], [task_params]
         )
+
+        job = CompressionJob(id=job_id, start_time=start_time, spider_job=jobs[0])
         db_cursor.execute(
             f"""
             UPDATE {COMPRESSION_TASKS_TABLE_NAME}
