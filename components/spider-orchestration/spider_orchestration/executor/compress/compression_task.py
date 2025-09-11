@@ -37,7 +37,7 @@ from spider_orchestration.scheduler.job_config import (
     S3InputConfig,
 )
 from spider_orchestration.scheduler.scheduler_data import CompressionTaskResult
-from yscope_spider_py import TaskContext
+from spider_py import TaskContext
 
 # Setup logging
 logger = get_logger("compression_scheduler")
