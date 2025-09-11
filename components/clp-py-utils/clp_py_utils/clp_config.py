@@ -170,6 +170,7 @@ class Database(BaseModel):
     host: str = "localhost"
     port: int = 3306
     name: str = "clp-db"
+    spider_name: str = "spider-storage"
     ssl_cert: Optional[str] = None
     auto_commit: bool = False
     compress: bool = True
@@ -245,6 +246,11 @@ class Database(BaseModel):
         if self.ssl_cert:
             connection_params_and_type["ssl_cert"] = self.ssl_cert
         return connection_params_and_type
+
+    def get_spider_url(self):
+        url = f"jdbc:{self.type}://{self.host}:{self.port}/{self.spider_name}"
+        if self.username and self.password:
+            url += f"?user={self.username}&password={self.password}"
 
     def dump_to_primitive_dict(self):
         return self.dict(exclude={"username", "password"})
