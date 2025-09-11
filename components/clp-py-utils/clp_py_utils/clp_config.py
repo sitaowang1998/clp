@@ -251,7 +251,7 @@ class Database(BaseModel):
         url = f"jdbc:{self.type}://{self.host}:{self.port}/{self.spider_name}"
         if self.username and self.password:
             url += f"?user={self.username}&password={self.password}"
-
+        return url
     def dump_to_primitive_dict(self):
         return self.dict(exclude={"username", "password"})
 
