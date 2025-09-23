@@ -8,7 +8,7 @@ import sys
 def parse_args(argv: list[str]) -> argparse.Namespace:
     """
     Parse command line arguments. This function expects the following arguments:
-    1. --python_path: Path to the Python interpreter to use.
+    1. --python_path: Path to the Python libraries.
     2. --spider_worker_path: Path to the Spider worker executable.
     3. --num_workers: Number of Spider workers to start.
     4. --storage_url: URL of the spider storage backend.
@@ -21,7 +21,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     args_parser.add_argument(
         "--python_path",
         required=True,
-        help="Path to the Python interpreter to use.",
+        help="Path to the Python libraries.",
     )
     args_parser.add_argument(
         "--spider_worker_path",
@@ -64,7 +64,10 @@ def main(argv: list[str]) -> int:
     host = args.host
 
     env = os.environ.copy()
-    env["PATH"] = f"{os.path.dirname(python_path)}:{env.get('PATH', '')}"
+    if "PYTHONPATH" in env:
+        env["PYTHONPATH"] = f"{python_path}:{env['PYTHONPATH']}"
+    else:
+        env["PYTHONPATH"] = python_path
     processes = []
     for _ in range(num_workers):
         p = subprocess.Popen([

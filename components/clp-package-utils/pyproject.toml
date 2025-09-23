@@ -1,6 +1,9 @@
 [project]
 requires-python = ">= 3.9"
 
+[project.scripts]
+start-spider-worker = "clp_package_utils.scripts.native.start_spider_worker:main"
+
 [tool.poetry]
 name = "clp-package-utils"
 version = "0.5.1-dev"

@@ -560,6 +560,21 @@ def start_compression_scheduler(
         mounts,
     )
 
+def start_spider_compression_scheduler(
+        instance_id: str,
+        clp_config: CLPConfig,
+        container_clp_config: CLPConfig,
+        mounts: CLPDockerMounts,
+):
+    module_name = "spider_orchestration.scheduler.compress.compression_scheduler"
+    generic_start_scheduler(
+        COMPRESSION_SCHEDULER_COMPONENT_NAME,
+        module_name,
+        instance_id,
+        clp_config,
+        container_clp_config,
+        mounts,
+    )
 
 def start_query_scheduler(
     instance_id: str,
@@ -667,6 +682,26 @@ def start_compression_worker(
         compression_worker_mounts,
     )
 
+
+def start_spider_compression_worker(
+    instance_id: str,
+    clp_config: CLPConfig,
+    container_clp_config: CLPConfig,
+    num_cpus: int,
+    mounts: CLPDockerMounts,
+):
+    compression_worker_mounts = [mounts.archives_output_dir]
+    generic_start_spider_worker(
+        COMPRESSION_WORKER_COMPONENT_NAME,
+        instance_id,
+        clp_config,
+        clp_config.compression_worker,
+        container_clp_config,
+        clp_config.database.get_spider_url(),
+        num_cpus,
+        mounts,
+        compression_worker_mounts,
+    )
 
 def start_query_worker(
     instance_id: str,
@@ -787,6 +822,90 @@ def generic_start_worker(
 
     logger.info(f"Started {component_name}.")
 
+def generic_start_spider_worker(
+    component_name: str,
+    instance_id: str,
+    clp_config: CLPConfig,
+    worker_config: BaseModel,
+    container_clp_config: CLPConfig,
+    storage_url: str,
+    num_cpus: int,
+    mounts: CLPDockerMounts,
+    worker_specific_mounts: Optional[List[Optional[DockerMount]]],
+):
+    logger.info(f"Starting {component_name}...")
+
+    container_name = f"clp-{component_name}-{instance_id}"
+    if container_exists(container_name):
+        return
+
+    logs_dir = clp_config.logs_directory / component_name
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    container_logs_dir = container_clp_config.logs_directory / component_name
+
+    # Create necessary directories
+    clp_config.archive_output.get_directory().mkdir(parents=True, exist_ok=True)
+    clp_config.stream_output.get_directory().mkdir(parents=True, exist_ok=True)
+
+    clp_site_packages_dir = CONTAINER_CLP_HOME / "lib" / "python3" / "site-packages"
+    container_worker_log_path = container_logs_dir / "worker.log"
+    # fmt: off
+    container_start_cmd = [
+        "docker", "run",
+        "-di",
+        "--network", "host",
+        "-w", str(CONTAINER_CLP_HOME),
+        "--name", container_name,
+        "--log-driver", "local",
+        "-u", f"{os.getuid()}:{os.getgid()}",
+    ]
+    # fmt: on
+
+    env_vars = [
+        *get_common_env_vars_list(include_clp_home_env_var=True),
+        *get_celery_connection_env_vars_list(container_clp_config),
+        f"CLP_CONFIG_PATH={container_clp_config.get_shared_config_file_path()}",
+        f"CLP_LOGS_DIR={container_logs_dir}",
+        f"CLP_LOGGING_LEVEL={worker_config.logging_level}",
+        f"CLP_WORKER_LOG_PATH={container_worker_log_path}",
+    ]
+    necessary_mounts = [
+        mounts.clp_home,
+        mounts.data_dir,
+        mounts.logs_dir,
+    ]
+    if StorageType.FS == clp_config.logs_input.type:
+        necessary_mounts.append(mounts.input_logs_dir)
+    if worker_specific_mounts:
+        necessary_mounts.extend(worker_specific_mounts)
+
+    aws_mount, aws_env_vars = generate_container_auth_options(clp_config, component_name)
+    if aws_mount:
+        necessary_mounts.append(mounts.aws_config_dir)
+    if aws_env_vars:
+        env_vars.extend(aws_env_vars)
+
+    append_docker_options(container_start_cmd, necessary_mounts, env_vars)
+    container_start_cmd.append(clp_config.execution_container)
+
+    worker_cmd = [
+        "python3",
+        str(clp_site_packages_dir / "bin" / "start-spider-worker"),
+        "--python-path",
+        str(clp_site_packages_dir / "lib" / "python3" / "site-packages"),
+        "--spider-worker-path",
+        str(CONTAINER_CLP_HOME / "bin" / "spider-worker"),
+        "--storage-url",
+        storage_url,
+        "--num-workers",
+        str(num_cpus),
+        "--host",
+        "127.0.0.1",
+    ]
+    cmd = container_start_cmd + worker_cmd
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, check=True)
+
+    logger.info(f"Started {component_name}.")
 
 def update_settings_object(
     parent_key_prefix: str,

@@ -140,6 +140,7 @@ tasks:
           components/clp-package-utils/dist/*.whl \
           components/clp-py-utils/dist/*.whl \
           components/job-orchestration/dist/*.whl \
+          components/spider-orchestration/dist/*.whl \
           -t "{{.OUTPUT_DIR}}/lib/python3/site-packages"
       - "mkdir -p '{{.OUTPUT_DIR}}/bin'"
       - >-
@@ -150,6 +151,8 @@ tasks:
         "{{.G_CORE_COMPONENT_BUILD_DIR}}/clp-s"
         "{{.G_CORE_COMPONENT_BUILD_DIR}}/indexer"
         "{{.G_CORE_COMPONENT_BUILD_DIR}}/reducer-server"
+        "{{.G_BUILD_DIR}}/deps/core/spider-build/src/spider/spider_scheduler"
+        "{{.G_BUILD_DIR}}/deps/core/spider-build/src/spider/spider_worker"
         "{{.OUTPUT_DIR}}/bin/"
       - >-
         rsync -a
