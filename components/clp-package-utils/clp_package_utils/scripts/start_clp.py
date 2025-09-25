@@ -925,7 +925,6 @@ def generic_start_spider_worker(
 
     env_vars = [
         *get_common_env_vars_list(include_clp_home_env_var=True),
-        *get_celery_connection_env_vars_list(container_clp_config),
         f"CLP_CONFIG_PATH={container_clp_config.get_shared_config_file_path()}",
         f"CLP_LOGS_DIR={container_logs_dir}",
         f"CLP_LOGGING_LEVEL={worker_config.logging_level}",
