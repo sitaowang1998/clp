@@ -64,6 +64,9 @@ tasks:
       - task: "clean-python-component"
         vars:
           COMPONENT: "job-orchestration"
+      - task: "clean-python-component"
+        vars:
+          COMPONENT: "spider-orchestration"
       - task: "clean-webui"
       - task: "tests:integration:cache-clear"
 
@@ -123,6 +126,7 @@ tasks:
       - "clp-py-utils"
       - "init"
       - "job-orchestration"
+      - "spider-orchestration"
       - "package-venv"
       - task: "utils:checksum:validate"
         vars:
@@ -223,6 +227,11 @@ tasks:
         COMPONENT: "{{.TASK}}"
 
   job-orchestration:
+    - task: "python-component"
+      vars:
+        COMPONENT: "{{.TASK}}"
+
+  spider-orchestration:
     - task: "python-component"
       vars:
         COMPONENT: "{{.TASK}}"
