@@ -626,6 +626,64 @@ def generic_start_scheduler(
         and StorageType.FS == clp_config.logs_input.type
     ):
         necessary_mounts.append(mounts.input_logs_dir)
+    append_docker_options(container_start_cmd, necessary_mounts, env_vars)
+    container_start_cmd.append(clp_config.execution_container)
+
+    # fmt: off
+    scheduler_cmd = [
+        "python3", "-u",
+        "-m", module_name,
+        "--config", str(container_clp_config.get_shared_config_file_path()),
+    ]
+    # fmt: on
+    cmd = container_start_cmd + scheduler_cmd
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, check=True)
+
+    logger.info(f"Started {component_name}.")
+
+def generic_start_spider_scheduler(
+    component_name: str,
+    module_name: str,
+    instance_id: str,
+    clp_config: CLPConfig,
+    container_clp_config: CLPConfig,
+    mounts: CLPDockerMounts,
+):
+    logger.info(f"Starting {component_name}...")
+
+    container_name = f"clp-{component_name}-{instance_id}"
+    if container_exists(container_name):
+        return
+
+    logs_dir = clp_config.logs_directory / component_name
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    container_logs_dir = container_clp_config.logs_directory / component_name
+
+    clp_site_packages_dir = CONTAINER_CLP_HOME / "lib" / "python3" / "site-packages"
+    # fmt: off
+    container_start_cmd = [
+        "docker", "run",
+        "-di",
+        "--network", "host",
+        "-w", str(CONTAINER_CLP_HOME),
+        "--name", container_name,
+        "--log-driver", "local",
+        "-u", f"{os.getuid()}:{os.getgid()}",
+    ]
+    # fmt: on
+
+    env_vars = [
+        *get_common_env_vars_list(),
+        *get_credential_env_vars_list(container_clp_config, include_db_credentials=True),
+        f"CLP_LOGS_DIR={container_logs_dir}",
+        f"CLP_LOGGING_LEVEL={clp_config.query_scheduler.logging_level}",
+    ]
+    necessary_mounts = [mounts.clp_home, mounts.logs_dir, mounts.generated_config_file]
+    aws_mount, aws_env_vars = generate_container_auth_options(clp_config, component_name)
+    if aws_mount:
+        necessary_mounts.append(mounts.aws_config_dir)
+    if aws_env_vars:
+        env_vars.extend(aws_env_vars)
     if (
         SPIDER_COMPRESSION_SCHEDULER_COMPONENT_NAME == component_name
         and StorageType.FS == clp_config.logs_input.type
@@ -653,7 +711,7 @@ def start_spider_compression_scheduler(
     mounts: CLPDockerMounts,
 ):
     module_name = "spider_orchestration.scheduler.compress.compression_scheduler"
-    generic_start_scheduler(
+    generic_start_spider_scheduler(
         SPIDER_COMPRESSION_SCHEDULER_COMPONENT_NAME,
         module_name,
         instance_id,
