@@ -352,7 +352,7 @@ tasks:
     platforms: ["linux"]
     status:
       - >-
-        test -f /etc/os-release && grep -qi ubuntu /etc/os-release || true
+        source /etc/os-release && [[ "$ID" != "ubuntu" ]]
     cmds:
       - task: "utils:install-remote-cmake-lib"
         vars:
@@ -481,7 +481,7 @@ tasks:
     platforms: ["linux"]
     status:
       - >-
-        test -f /etc/os-release && grep -qi ubuntu /etc/os-release || true
+        source /etc/os-release && [[ "$ID" != "ubuntu" ]]
     deps:
       - task: "absl"
       - task: "antlr-jar"
@@ -508,9 +508,8 @@ tasks:
             - "-DCMAKE_INSTALL_MESSAGE=LAZY"
             - "-DSPIDER_BUILD_TESTING=OFF"
           LIB_NAME: "spider"
-          # TODO: Update the url and checksum when we have a proper Spider release
-          TARBALL_SHA256: "23aa213e14512861c8a1c03bf2afb78dcceb673d29be6d22f3e4d93bcbfac164"
-          TARBALL_URL: "https://github.com/y-scope/spider/archive/03de061.tar.gz"
+          TARBALL_SHA256: "43478b6da99aa2df50c960573ec68c6fcf67cdfbab39b5e314676218aa93b959"
+          TARBALL_URL: "https://github.com/y-scope/spider/archive/6a7bad3.tar.gz"
 
   sqlite3:
     internal: true
