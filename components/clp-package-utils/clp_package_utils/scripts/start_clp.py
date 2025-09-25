@@ -33,7 +33,7 @@ from clp_py_utils.clp_config import (
     RESULTS_CACHE_COMPONENT_NAME,
     StorageEngine,
     StorageType,
-    WEBUI_COMPONENT_NAME,
+    WEBUI_COMPONENT_NAME, SPIDER_COMPRESSION_WORKER_COMPONENT_NAME,
 )
 from clp_py_utils.clp_metadata_db_utils import (
     get_archives_table_name,
@@ -560,22 +560,6 @@ def start_compression_scheduler(
         mounts,
     )
 
-def start_spider_compression_scheduler(
-        instance_id: str,
-        clp_config: CLPConfig,
-        container_clp_config: CLPConfig,
-        mounts: CLPDockerMounts,
-):
-    module_name = "spider_orchestration.scheduler.compress.compression_scheduler"
-    generic_start_scheduler(
-        COMPRESSION_SCHEDULER_COMPONENT_NAME,
-        module_name,
-        instance_id,
-        clp_config,
-        container_clp_config,
-        mounts,
-    )
-
 def start_query_scheduler(
     instance_id: str,
     clp_config: CLPConfig,
@@ -692,7 +676,7 @@ def start_spider_compression_worker(
 ):
     compression_worker_mounts = [mounts.archives_output_dir]
     generic_start_spider_worker(
-        COMPRESSION_WORKER_COMPONENT_NAME,
+        SPIDER_COMPRESSION_WORKER_COMPONENT_NAME,
         instance_id,
         clp_config,
         clp_config.compression_worker,
@@ -1274,6 +1258,8 @@ def main(argv):
     component_args_parser.add_parser(QUERY_SCHEDULER_COMPONENT_NAME)
     compression_worker_parser = component_args_parser.add_parser(COMPRESSION_WORKER_COMPONENT_NAME)
     add_num_workers_argument(compression_worker_parser)
+    spider_compression_worker = component_args_parser.add_parser(SPIDER_COMPRESSION_WORKER_COMPONENT_NAME)
+    add_num_workers_argument(spider_compression_worker)
     query_worker_parser = component_args_parser.add_parser(QUERY_WORKER_COMPONENT_NAME)
     add_num_workers_argument(query_worker_parser)
     reducer_server_parser = component_args_parser.add_parser(REDUCER_COMPONENT_NAME)
@@ -1371,6 +1357,7 @@ def main(argv):
 
     if target in (
         COMPRESSION_WORKER_COMPONENT_NAME,
+        SPIDER_COMPRESSION_WORKER_COMPONENT_NAME,
         REDUCER_COMPONENT_NAME,
         QUERY_WORKER_COMPONENT_NAME,
     ):
@@ -1431,6 +1418,11 @@ def main(argv):
 
         if COMPRESSION_WORKER_COMPONENT_NAME in components_to_start:
             start_compression_worker(
+                instance_id, clp_config, container_clp_config, num_workers, mounts
+            )
+
+        if SPIDER_COMPRESSION_WORKER_COMPONENT_NAME in components_to_start:
+            start_spider_compression_worker(
                 instance_id, clp_config, container_clp_config, num_workers, mounts
             )
 
