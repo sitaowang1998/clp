@@ -626,6 +626,11 @@ def generic_start_scheduler(
         and StorageType.FS == clp_config.logs_input.type
     ):
         necessary_mounts.append(mounts.input_logs_dir)
+    if (
+        SPIDER_COMPRESSION_SCHEDULER_COMPONENT_NAME == component_name
+        and StorageType.FS == clp_config.logs_input.type
+    ):
+        necessary_mounts.append(mounts.input_logs_dir)
     append_docker_options(container_start_cmd, necessary_mounts, env_vars)
     container_start_cmd.append(clp_config.execution_container)
 
