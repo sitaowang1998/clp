@@ -2,6 +2,7 @@ from celery import signals
 from celery.app.task import Task
 from celery.utils.log import get_task_logger
 
+from clp_py_utils.profiling_utils import profile
 from job_orchestration.executor.compress.celery import app
 from job_orchestration.executor.compress.compression_task import compression_entry_point
 
@@ -15,6 +16,7 @@ def worker_shutdown_handler(signal=None, sender=None, **kwargs):
 
 
 @app.task(bind=True)
+@profile(section_name="celery_compress")
 def compress(
     self: Task,
     job_id: int,

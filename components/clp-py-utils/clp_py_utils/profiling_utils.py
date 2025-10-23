@@ -237,7 +237,7 @@ def _save_profile(
         with open(txt_path, "w", encoding="utf-8") as f:
             # Header
             f.write("=" * 80 + "\n")
-            f.write(f"CLP Query Profiling Report (pyinstrument)\n")
+            f.write(f"CLP Task Profiling Report (pyinstrument)\n")
             f.write(f"Section: {section_name}\n")
             if job_id:
                 f.write(f"Job ID: {job_id}\n")

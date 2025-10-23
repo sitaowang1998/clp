@@ -3,6 +3,7 @@ import json
 from clp_py_utils.clp_logging import get_logger
 from spider_py import Int8, Int64, TaskContext
 
+from clp_py_utils.profiling_utils import profile
 from job_orchestration.executor.compress.compression_task import compression_entry_point
 from job_orchestration.utils.spider_utils import int8_list_to_utf8_str, utf8_str_to_int8_list
 
@@ -10,6 +11,7 @@ from job_orchestration.utils.spider_utils import int8_list_to_utf8_str, utf8_str
 logger = get_logger("spider_compression")
 
 
+@profile(section_name="spider_compress")
 def compress(
     _: TaskContext,
     job_id: Int64,
