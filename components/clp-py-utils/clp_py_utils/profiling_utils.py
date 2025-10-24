@@ -134,7 +134,7 @@ def profile(section_name: str | None = None) -> Callable[[F], F]:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             if not _is_profiling_enabled():
                 return func(*args, **kwargs)
-            profiler = ProfilerContext.get_profiler()
+            profiler = ProfilerContext.create_profiler()
             profiler.start()
             try:
                 result = func(*args, **kwargs)
