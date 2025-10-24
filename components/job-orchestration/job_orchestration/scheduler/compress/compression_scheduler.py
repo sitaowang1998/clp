@@ -532,7 +532,7 @@ def main(argv):
 
                     @skip_profile
                     def loop_sleep() -> None:
-                        time.sleep(clp_config.compression_scheduler.sleep_time)
+                        time.sleep(clp_config.compression_scheduler.jobs_poll_delay)
 
                     loop_sleep()
                 except KeyboardInterrupt:
