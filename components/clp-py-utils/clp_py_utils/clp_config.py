@@ -299,6 +299,7 @@ class QueryScheduler(BaseModel):
 
 class CompressionWorker(BaseModel):
     logging_level: LoggingLevel = "INFO"
+    enable_profiling: bool = False
 
 
 class QueryWorker(BaseModel):

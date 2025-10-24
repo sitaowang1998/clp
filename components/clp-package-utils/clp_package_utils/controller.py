@@ -392,6 +392,13 @@ class BaseController(ABC):
             ),
         }
 
+        # Profiling config
+        env_vars |= {
+            "CLP_COMPRESSION_WORKER_ENABLE_PROFILING": str(
+                self._clp_config.query_worker.enable_profiling
+            ).lower(),
+        }
+
         # Resources
         env_vars |= {
             "CLP_COMPRESSION_WORKER_CONCURRENCY": str(num_workers),
