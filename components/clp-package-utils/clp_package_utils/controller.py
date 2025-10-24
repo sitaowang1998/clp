@@ -350,7 +350,7 @@ class BaseController(ABC):
         # Profiling config
         env_vars |= {
             "CLP_COMPRESSION_SCHEDULER_ENABLE_PROFILING": str(
-                self._clp_config.query_worker.enable_profiling
+                self._clp_config.compression_scheduler.enable_profiling
             ).lower(),
         }
 
@@ -402,7 +402,7 @@ class BaseController(ABC):
         # Profiling config
         env_vars |= {
             "CLP_COMPRESSION_WORKER_ENABLE_PROFILING": str(
-                self._clp_config.query_worker.enable_profiling
+                self._clp_config.compression_worker.enable_profiling
             ).lower(),
         }
 

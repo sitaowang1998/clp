@@ -142,6 +142,7 @@ def profile(section_name: str | None = None) -> Callable[[F], F]:
             finally:
                 profiler.stop()
                 _save_profile(profiler, name)
+                ProfilerContext.remove_profiler()
 
         return wrapper  # type: ignore
 
