@@ -28,6 +28,7 @@ from clp_py_utils.clp_metadata_db_utils import (
 )
 from clp_py_utils.compression import validate_path_and_get_info
 from clp_py_utils.core import read_yaml_config_file
+from clp_py_utils.profiling_utils import profile, skip_profile
 from clp_py_utils.s3_utils import s3_get_object_metadata
 from clp_py_utils.sql_adapter import SQL_Adapter
 from pydantic import ValidationError
@@ -515,24 +516,33 @@ def main(argv):
         )
 
         # Start Job Processing Loop
-        while True:
-            try:
-                if not received_sigterm:
-                    search_and_schedule_new_tasks(
-                        clp_config,
-                        db_conn,
-                        db_cursor,
-                        clp_metadata_db_connection_config,
-                        task_manager,
-                    )
-                poll_running_jobs(db_conn, db_cursor)
-                time.sleep(clp_config.compression_scheduler.jobs_poll_delay)
-            except KeyboardInterrupt:
-                logger.info("Forcefully shutting down")
-                return -1
-            except Exception:
-                logger.exception(f"Error in scheduling.")
-                return -1
+        @profile(section_name="compression_scheduler")
+        def job_loop() -> int:
+            while True:
+                try:
+                    if not received_sigterm:
+                        search_and_schedule_new_tasks(
+                            clp_config,
+                            db_conn,
+                            db_cursor,
+                            clp_metadata_db_connection_config,
+                            task_manager,
+                        )
+                    poll_running_jobs(db_conn, db_cursor)
+
+                    @skip_profile
+                    def loop_sleep() -> None:
+                        time.sleep(clp_config.compression_scheduler.sleep_time)
+
+                    loop_sleep()
+                except KeyboardInterrupt:
+                    logger.info("Forcefully shutting down")
+                    return -1
+                except Exception:
+                    logger.exception(f"Error in scheduling.")
+                    return -1
+
+        return job_loop()
 
 
 if "__main__" == __name__:

@@ -148,33 +148,24 @@ def profile(section_name: str | None = None) -> Callable[[F], F]:
     return decorator
 
 
-def profiler_skip() -> Callable[[F], F]:
-    """
-    Decorator to skip profiling for the decorated function.
+def skip_profile(func: F) -> F:
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        if not _is_profiling_enabled():
+            return func(*args, **kwargs)
 
-    :return: Decorated function that skips profiling.
-    """
+        profiler = ProfilerContext.get_profiler()
+        if profiler is None:
+            return func(*args, **kwargs)
 
-    def decorator(func: F) -> F:
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            if not _is_profiling_enabled():
-                return func(*args, **kwargs)
+        profiler.stop()
+        try:
+            result = func(*args, **kwargs)
+            return result
+        finally:
+            profiler.start()
 
-            profiler = ProfilerContext.get_profiler()
-            if profiler is None:
-                return func(*args, **kwargs)
-
-            profiler.stop()
-            try:
-                result = func(*args, **kwargs)
-                return result
-            finally:
-                profiler.start()
-
-        return wrapper  # type: ignore
-
-    return decorator
+    return wrapper  # type: ignore
 
 
 class ProfilerContext:
