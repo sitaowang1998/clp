@@ -27,7 +27,7 @@ F = TypeVar("F", bound=Callable[..., Any])
 PROFILING_INTERVAL_SECONDS = 0.001
 
 
-def profile(
+def profile_task(
     section_name: str | None = None,
     job_id_param: str = "job_id",
     task_id_param: str = "task_id",
