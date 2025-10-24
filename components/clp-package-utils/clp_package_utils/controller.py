@@ -347,6 +347,13 @@ class BaseController(ABC):
             ),
         }
 
+        # Profiling config
+        env_vars |= {
+            "CLP_COMPRESSION_SCHEDULER_ENABLE_PROFILING": str(
+                self._clp_config.query_worker.enable_profiling
+            ).lower(),
+        }
+
         return env_vars
 
     def _set_up_env_for_query_scheduler(self) -> EnvVarsDict:

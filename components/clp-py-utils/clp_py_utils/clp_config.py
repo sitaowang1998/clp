@@ -280,6 +280,7 @@ class SpiderScheduler(BaseModel):
 class CompressionScheduler(BaseModel):
     jobs_poll_delay: PositiveFloat = 0.1  # seconds
     logging_level: LoggingLevel = "INFO"
+    enable_profiling: bool = False
     type: OrchestrationTypeStr = OrchestrationType.celery
 
 
