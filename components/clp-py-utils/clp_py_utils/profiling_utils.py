@@ -12,6 +12,7 @@ import datetime
 import functools
 import inspect
 import os
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar
@@ -116,6 +117,100 @@ def profile_task(
         return sync_wrapper  # type: ignore
 
     return decorator
+
+
+def profile(section_name: str | None = None) -> Callable[[F], F]:
+    """
+    Profiles function execution as decorator with automatic context extraction.
+
+    :param section_name: Override for profile section name. If None, uses function name.
+    :return: Decorated function with profiling capabilities.
+    """
+
+    def decorator(func: F) -> F:
+        name = section_name or func.__name__
+
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            if not _is_profiling_enabled():
+                return func(*args, **kwargs)
+            profiler = ProfilerContext.get_profiler()
+            profiler.start()
+            try:
+                result = func(*args, **kwargs)
+                return result
+            finally:
+                profiler.stop()
+                _save_profile(profiler, name)
+
+        return wrapper  # type: ignore
+
+    return decorator
+
+
+def profiler_skip() -> Callable[[F], F]:
+    """
+    Decorator to skip profiling for the decorated function.
+
+    :return: Decorated function that skips profiling.
+    """
+
+    def decorator(func: F) -> F:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            if not _is_profiling_enabled():
+                return func(*args, **kwargs)
+
+            profiler = ProfilerContext.get_profiler()
+            if profiler is None:
+                return func(*args, **kwargs)
+
+            profiler.stop()
+            try:
+                result = func(*args, **kwargs)
+                return result
+            finally:
+                profiler.start()
+
+        return wrapper  # type: ignore
+
+    return decorator
+
+
+class ProfilerContext:
+    """
+    Manages the profiler for each thread.
+    """
+
+    _local = threading.local()
+
+    @classmethod
+    def create_profiler(cls) -> Profiler:
+        """
+        Creates a profiler for the current thread.
+        """
+        if hasattr(cls._local, "profiler"):
+            logger.warn("Profiler already started.")
+            return cls._local.profiler
+        cls._local.profiler = Profiler(interval=PROFILING_INTERVAL_SECONDS)
+        return cls._local.profiler
+
+    @classmethod
+    def get_profiler(cls) -> Profiler | None:
+        """
+        Gets the profiler for the current thread.
+        """
+        return getattr(cls._local, "profiler", None)
+
+    @classmethod
+    def remove_profiler(cls) -> None:
+        """
+        Removes the profiler for the current thread.
+        """
+        if hasattr(cls._local, "profiler"):
+            del cls._local.profiler
+        else:
+            logger.warn("No profiler to remove.")
 
 
 def _extract_context_from_args(
