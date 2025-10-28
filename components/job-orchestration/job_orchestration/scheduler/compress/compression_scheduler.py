@@ -401,7 +401,7 @@ def poll_running_jobs(db_conn, db_cursor):
         error_message = ""
 
         try:
-            returned_results = job.result_handle.get_result()
+            returned_results = job.result_handle.get_result(timeout=0)
             if returned_results is None:
                 continue
 

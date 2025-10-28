@@ -16,6 +16,12 @@ class CeleryTaskManager(TaskManager):
             self._celery_result: celery.result.GroupResult = celery_result
 
         def get_result(self, timeout: float = 0.1) -> list[CompressionTaskResult] | None:
+            if timeout == 0:
+                if not self._celery_result.ready():
+                    return None
+                results = self._celery_result.get()
+                return [CompressionTaskResult.model_validate(res) for res in results]
+
             try:
                 results = self._celery_result.get(timeout=timeout)
                 return [CompressionTaskResult.model_validate(res) for res in results]
