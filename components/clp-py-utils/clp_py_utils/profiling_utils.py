@@ -11,7 +11,6 @@ Profile outputs include:
 import datetime
 import functools
 import inspect
-import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -19,7 +18,9 @@ from typing import Any, TypeVar
 
 from pyinstrument import Profiler
 
-logger = logging.getLogger(__name__)
+from clp_py_utils.clp_logging import get_logger
+
+logger = get_logger("profiler")
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -52,7 +53,7 @@ def profile(
         if is_async:
 
             @functools.wraps(func)
-            async def async_wrapper(*args, **kwargs):
+            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
                 if not _is_profiling_enabled():
                     return await func(*args, **kwargs)
 
@@ -84,7 +85,7 @@ def profile(
             return async_wrapper  # type: ignore
 
         @functools.wraps(func)
-        def sync_wrapper(*args, **kwargs):
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             if not _is_profiling_enabled():
                 return func(*args, **kwargs)
 
@@ -185,10 +186,12 @@ def _extract_context_from_args(
 def _is_profiling_enabled() -> bool:
     """
     Checks if profiling is enabled.
-    TODO: Add `CLPConfig` mechanism to enable/disable profiling for each component.
 
-    :return: Whether the profiler is enabled.
+    :return: If `CLP_ENABLE_PROFILING` environment variable is set to `true`.
     """
+    profiling_enabled = os.getenv("CLP_ENABLE_PROFILING")
+    if profiling_enabled is not None and profiling_enabled.lower() == "true":
+        return True
     return False
 
 

@@ -304,6 +304,7 @@ class CompressionWorker(BaseModel):
 
 class QueryWorker(BaseModel):
     logging_level: LoggingLevel = "INFO"
+    enable_profiling: bool = False
 
 
 class Redis(BaseModel):
