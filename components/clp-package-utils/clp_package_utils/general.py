@@ -20,6 +20,7 @@ from clp_py_utils.clp_config import (
     CONTAINER_CLP_HOME,
     CONTAINER_INPUT_LOGS_ROOT_DIR,
     DB_COMPONENT_NAME,
+    MCP_SERVER_COMPONENT_NAME,
     QueryEngine,
     QUEUE_COMPONENT_NAME,
     REDIS_COMPONENT_NAME,
@@ -48,6 +49,9 @@ EXTRACT_JSON_CMD = "j"
 
 DOCKER_MOUNT_TYPE_STRINGS = ["bind"]
 
+S3_KEY_PREFIX_COMPRESSION = "s3-key-prefix"
+S3_OBJECT_COMPRESSION = "s3-object"
+
 
 class DockerDependencyError(OSError):
     """Base class for errors related to Docker dependencies."""
@@ -59,7 +63,7 @@ class DockerNotAvailableError(DockerDependencyError):
     def __init__(self, base_message: str, process_error: subprocess.CalledProcessError) -> None:
         message = base_message
         output_chunks: list[str] = []
-        for stream in (process_error.output, process_error.stderr):
+        for stream in (process_error.stdout, process_error.stderr):
             if stream is None:
                 continue
             if isinstance(stream, bytes):
@@ -70,12 +74,12 @@ class DockerNotAvailableError(DockerDependencyError):
             if text:
                 output_chunks.append(text)
         if len(output_chunks) > 0:
-            message = f"{base_message}\n" + "\n".join(output_chunks)
+            message = "\n".join([base_message, *output_chunks])
         super().__init__(errno.ENOENT, message)
 
 
 class DockerComposeProjectNotRunningError(DockerDependencyError):
-    """Raised when an expected Docker Compose project is not running."""
+    """Raised when a Docker Compose project is not running but should be."""
 
     def __init__(self, project_name: str) -> None:
         super().__init__(errno.ESRCH, f"Docker Compose project '{project_name}' is not running.")
@@ -184,7 +188,6 @@ def check_docker_dependencies(should_compose_project_be_running: bool, project_n
         raise DockerNotAvailableError("docker is not installed or available on the path", e) from e
 
     is_running = _is_docker_compose_project_running(project_name)
-
     if should_compose_project_be_running and not is_running:
         raise DockerComposeProjectNotRunningError(project_name)
     if not should_compose_project_be_running and is_running:
@@ -326,7 +329,7 @@ def generate_worker_config(clp_config: CLPConfig) -> WorkerConfig:
     worker_config = WorkerConfig()
     worker_config.package = clp_config.package.model_copy(deep=True)
     worker_config.archive_output = clp_config.archive_output.model_copy(deep=True)
-    worker_config.data_directory = clp_config.data_directory
+    worker_config.tmp_directory = clp_config.tmp_directory
 
     worker_config.stream_output = clp_config.stream_output
     worker_config.stream_collection_name = clp_config.results_cache.stream_collection_name
@@ -441,6 +444,7 @@ def load_config_file(
 
     validate_path_for_container_mount(clp_config.data_directory)
     validate_path_for_container_mount(clp_config.logs_directory)
+    validate_path_for_container_mount(clp_config.tmp_directory)
 
     return clp_config
 
@@ -590,6 +594,14 @@ def validate_webui_config(
             raise ValueError(f"{WEBUI_COMPONENT_NAME} {path} is not a valid path to settings.json")
 
     validate_port(f"{WEBUI_COMPONENT_NAME}.port", clp_config.webui.host, clp_config.webui.port)
+
+
+def validate_mcp_server_config(clp_config: CLPConfig, logs_dir: pathlib.Path):
+    _validate_log_directory(logs_dir, MCP_SERVER_COMPONENT_NAME)
+
+    validate_port(
+        f"{MCP_SERVER_COMPONENT_NAME}.port", clp_config.mcp_server.host, clp_config.mcp_server.port
+    )
 
 
 def validate_path_for_container_mount(path: pathlib.Path) -> None:
@@ -745,7 +757,7 @@ def _is_docker_compose_project_running(project_name: str) -> bool:
     :param project_name:
     :return: Whether at least one instance is running.
     :raise DockerNotAvailableError: If Docker Compose is not installed or fails. The error message
-    includes Docker's command output when available.
+    includes the Docker command's output when available.
     """
     cmd = ["docker", "compose", "ls", "--format", "json", "--filter", f"name={project_name}"]
     try:
