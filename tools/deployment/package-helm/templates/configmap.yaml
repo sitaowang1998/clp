@@ -27,6 +27,7 @@ data:
     compression_scheduler:
       jobs_poll_delay: {{ .Values.clpConfig.compression_scheduler.jobs_poll_delay }}
       logging_level: {{ .Values.clpConfig.compression_scheduler.logging_level | quote }}
+      type: {{ .Values.clpConfig.compression_scheduler.type | quote }}}
     compression_worker:
       logging_level: {{ .Values.clpConfig.compression_worker.logging_level | quote }}
     data_directory: "/var/data"
@@ -34,7 +35,9 @@ data:
       auto_commit: false
       compress: true
       host: {{ include "clp.fullname" . }}-database
-      name: {{ .Values.clpConfig.database.name | quote }}
+      name:
+        clp: {{ .Values.clpConfig.database.name.clp | quote }}
+        spider: {{ .Values.clpConfig.database.name.spider | quote }}}
       port: 3306
       ssl_cert: null
       type: {{ .Values.clpConfig.database.type | quote }}
@@ -79,6 +82,10 @@ data:
       port: 27017
       retention_period: {{ .Values.clpConfig.results_cache.retention_period }}
       stream_collection_name: {{ .Values.clpConfig.results_cache.stream_collection_name | quote }}
+    spider_scheduler:
+      host: {{ include "clp.fullname" }}}-spider-scheduler
+      port: 6000
+      logging_level: {{ .Values.clpConfig.spider_scheduler.logging_level | quote }}}
     stream_output:
       storage:
         directory: "/var/data/streams"
