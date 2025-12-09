@@ -33,7 +33,7 @@ spec:
           imagePullPolicy: "Always"
           env:
             - name: "MYSQL_DATABASE"
-              value: {{ .Values.clpConfig.database.name | quote }}
+              value: {{ .Values.clpConfig.database.names.clp | quote }}
             - name: "MYSQL_USER"
               valueFrom:
                 secretKeyRef:
@@ -48,7 +48,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ include "clp.fullname" . }}-database
-                  key: "password"
+                  key: "root_password"
           ports:
             - name: "database"
               containerPort: 3306
