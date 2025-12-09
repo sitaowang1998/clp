@@ -14,12 +14,19 @@ mkdir -p /tmp/clp/var/log/user
 mkdir -p /tmp/clp/var/tmp
 mkdir -p /tmp/clp/samples
 
+# Download sample datasets in the background
+wget -O - https://zenodo.org/records/10516402/files/postgresql.tar.gz?download=1 \
+  | tar xz -C /tmp/clp/samples &
+SAMPLE_DOWNLOAD_PID=$!
+
 cat <<EOF | kind create cluster --name clp-test --config=-
   kind: Cluster
   apiVersion: kind.x-k8s.io/v1alpha4
   nodes:
   - role: control-plane
     extraMounts:
+    - hostPath: /home
+      containerPath: /home
     - hostPath: /tmp/clp
       containerPath: /tmp/clp
     extraPortMappings:
@@ -40,9 +47,10 @@ cat <<EOF | kind create cluster --name clp-test --config=-
       protocol: TCP
 EOF
 
-cp /home/junhao/samples/postgresql.jsonl /tmp/clp/postgresql.jsonl
-
 helm uninstall test || true
 sleep 2
 helm install test .
 ls -l /tmp/clp/var/data/
+
+wait $SAMPLE_DOWNLOAD_PID
+echo "Sample download and extraction complete"
