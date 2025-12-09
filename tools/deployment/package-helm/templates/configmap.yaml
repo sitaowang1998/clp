@@ -94,7 +94,7 @@ data:
       retention_period: {{ .Values.clpConfig.results_cache.retention_period }}
       stream_collection_name: {{ .Values.clpConfig.results_cache.stream_collection_name | quote }}
     spider_scheduler:
-      host: {{ include "clp.fullname" }}}-spider-scheduler
+      host: {{ include "clp.fullname" . }}-spider-scheduler
       port: 6000
       logging_level: {{ .Values.clpConfig.spider_scheduler.logging_level | quote }}}
     stream_output:
