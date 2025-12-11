@@ -39,7 +39,7 @@ spec:
           image: "{{ include "clp.image.ref" . }}"
           imagePullPolicy: "{{ .Values.image.clpPackage.pullPolicy }}"
           env:
-            - name: "CLP_LOGS_FILE"
+            - name: "SPIDER_LOG_FILE"
               value: "/var/log/spider_scheduler/spider_scheduler.log"
             - name: "SPIDER_STORAGE_URL"
               valueFrom:
