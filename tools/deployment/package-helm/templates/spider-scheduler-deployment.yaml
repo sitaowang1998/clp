@@ -1,3 +1,4 @@
+{{- if eq .Values.clpConfig.compression_scheduler.type "spider" }}
 apiVersion: "apps/v1"
 kind: "Deployment"
 metadata:
@@ -67,3 +68,4 @@ spec:
         - name: "spider-scheduler-logs"
           persistentVolumeClaim:
             claimName: {{ include "clp.fullname" . }}-spider-scheduler-logs
+{{- end }}

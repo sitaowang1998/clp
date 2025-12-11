@@ -1,3 +1,4 @@
+{{- if eq .Values.clpConfig.compression_scheduler.type "spider" }}
 {{- include "clp.createLocalPv" (dict
   "root" .
   "name" (printf "%s-spider-scheduler-logs" (include "clp.fullname" .))
@@ -7,3 +8,4 @@
   "accessModes" (list "ReadWriteOnce")
   "hostPath" (printf "%s/spider-scheduler" .Values.clpConfig.logs_directory)
 ) }}
+{{- end }}
