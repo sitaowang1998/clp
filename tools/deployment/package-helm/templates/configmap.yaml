@@ -96,7 +96,7 @@ data:
     spider_scheduler:
       host: {{ include "clp.fullname" . }}-spider-scheduler
       port: 6000
-      logging_level: {{ .Values.clpConfig.spider_scheduler.logging_level | quote }}}
+      logging_level: {{ .Values.clpConfig.spider_scheduler.logging_level | quote }}
     stream_output:
       storage:
         directory: "/var/data/streams"
