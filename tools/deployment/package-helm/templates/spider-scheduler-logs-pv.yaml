@@ -1,0 +1,9 @@
+{{- include "clp.createLocalPv" (dict
+  "root" .
+  "name" (printf "%s-spider-scheduler-logs" (include "clp.fullname" .))
+  "component" "spider-scheduler-logs"
+  "nodeRole" "control-plane"
+  "capacity" "5Gi"
+  "accessModes" (list "ReadWriteOnce")
+  "hostPath" (printf "%s/spider-scheduler" .Values.clpConfig.logs_directory)
+) }}

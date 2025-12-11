@@ -1,0 +1,68 @@
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata:
+  name: {{ include "clp.fullname" . }}-spider-scheduler
+  labels:
+    {{- include "clp.labels" . | nindent 4 }}
+    app.kubernetes.io/component: "spider-scheduler"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "clp.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: "spider-scheduler"
+  template:
+    metadata:
+      labels:
+        {{- include "clp.labels" . | nindent 8 }}
+        app.kubernetes.io/component: "spider-scheduler"
+    spec:
+      terminationGracePeriodSeconds: 300
+      securityContext:
+        runAsUser: {{ .Values.securityContext.firstParty.uid }}
+        runAsGroup: {{ .Values.securityContext.firstParty.gid }}
+        fsGroup: {{ .Values.securityContext.firstParty.gid }}
+      initContainers:
+        - name: "wait-for-database"
+          image: "busybox:latest"
+          command:
+            - "sh"
+            - "-c"
+            - >-
+              until nc -z {{ include "clp.fullname" . }}-database 3306;
+                do echo Waiting for database to be ready...;
+                sleep 2;
+              done
+      containers:
+        - name: "spider-scheduler"
+          image: "{{ include "clp.image.ref" . }}"
+          imagePullPolicy: "{{ .Values.image.clpPackage.pullPolicy }}"
+          env:
+            - name: "CLP_LOGS_FILE"
+              value: "/var/log/spider_scheduler/spider_scheduler.log"
+          ports:
+            - name: "spider-scheduler"
+              containerPort: 6000
+          volumeMounts:
+            - name: "config"
+              mountPath: "/etc/clp-config.yaml"
+              subPath: "clp-config.yaml"
+              readOnly: true
+            - name: "spider-scheduler-logs"
+              mountPath: "/var/log/spider_scheduler"
+          command: [
+            "/opt/clp/bin/spider_scheduler",
+            "--host", "spider_scheduler",
+            "--port", "6000",
+            "--storage_url", "jdbc:mariadb://database:3306/\
+              {{ .Values.clpConfig.database.names.spider }}?\
+              user={{ .Values.credentials.database.spider_username }}\
+              &password={{ .Values.credentials.database.spider_password }}}",
+          ]
+      volumes:
+        - name: "config"
+          configMap:
+            name: {{ include "clp.fullname" . }}-config
+        - name: "spider-scheduler-logs"
+          persistentVolumeClaim:
+            claimName: {{ include "clp.fullname" . }}-spider-scheduler-logs

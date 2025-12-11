@@ -1,0 +1,6 @@
+{{- include "clp.createPvc" (dict
+  "root" .
+  "component" "spider-scheduler-logs"
+  "capacity" "5Gi"
+  "accessModes" (list "ReadWriteOnce")
+) }}
