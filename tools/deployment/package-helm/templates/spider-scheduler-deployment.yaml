@@ -40,6 +40,11 @@ spec:
           env:
             - name: "CLP_LOGS_FILE"
               value: "/var/log/spider_scheduler/spider_scheduler.log"
+            - name: "SPIDER_STORAGE_URL"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "clp.fullname" . }}-database
+                  key: "spider_storage_url"
           ports:
             - name: "spider-scheduler"
               containerPort: 6000
@@ -54,10 +59,6 @@ spec:
             "/opt/clp/bin/spider_scheduler",
             "--host", "spider_scheduler",
             "--port", "6000",
-            "--storage_url", "jdbc:mariadb://database:3306/\
-              {{ .Values.clpConfig.database.names.spider }}?\
-              user={{ .Values.credentials.database.spider_username }}\
-              &password={{ .Values.credentials.database.spider_password }}}",
           ]
       volumes:
         - name: "config"
