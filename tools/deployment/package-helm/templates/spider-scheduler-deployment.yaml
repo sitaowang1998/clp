@@ -47,7 +47,7 @@ spec:
                   name: {{ include "clp.fullname" . }}-database
                   key: "spider_storage_url"
           ports:
-            - name: "spider-scheduler"
+            - name: "scheduler"
               containerPort: 6000
           volumeMounts:
             - name: "config"
@@ -58,7 +58,7 @@ spec:
               mountPath: "/var/log/spider_scheduler"
           command: [
             "/opt/clp/bin/spider_scheduler",
-            "--host", "spider_scheduler",
+            "--host", "scheduler",
             "--port", "6000",
           ]
       volumes:

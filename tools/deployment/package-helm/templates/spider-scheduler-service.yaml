@@ -17,7 +17,7 @@ spec:
     app.kubernetes.io/component: "spider-scheduler"
   ports:
     - port: 6000
-      targetPort: "spider-scheduler"
+      targetPort: "scheduler"
       {{- if .Values.allowHostAccessForSbinScripts }}
       nodePort: {{ .Values.clpConfig.spider_scheduler.port }}
       {{- end }}

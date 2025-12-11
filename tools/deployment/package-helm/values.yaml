@@ -50,7 +50,7 @@ clpConfig:
     type: "celery"  # "celery" or "spider"
 
   spider_scheduler:
-    port: 6000
+    port: 30600
     logging_level: "INFO"
 
   query_scheduler:
