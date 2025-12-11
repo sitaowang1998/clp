@@ -48,22 +48,37 @@ spec:
           image: "{{ include "clp.image.ref" . }}"
           imagePullPolicy: "{{ .Values.image.clpPackage.pullPolicy }}"
           env:
+            {{- if eq .Values.clpConfig.compression_scheduler.type "celery" }}
             - name: "BROKER_URL"
               value: "amqp://{{ .Values.credentials.queue.username }}:{{ .Values.credentials.queue.password }}@{{ include "clp.fullname" . }}-queue:5672"
+            {{- end }}
             - name: "CLP_CONFIG_PATH"
               value: "/etc/clp-config.yaml"
             - name: "CLP_HOME"
               value: "/opt/clp"
             - name: "CLP_LOGGING_LEVEL"
               value: {{ .Values.clpConfig.compression_worker.logging_level | quote }}
+            {{- if eq .Values.clpConfig.compression_scheduler.type "celery" }}
             - name: "CLP_LOGS_DIR"
               value: "/var/log/compression_worker"
             - name: "CLP_WORKER_LOG_PATH"
               value: "/var/log/compression_worker/worker.log"
+            {{- end }}
             - name: "PYTHONPATH"
               value: "/opt/clp/lib/python3/site-packages"
+            {{- if eq .Values.clpConfig.compression_scheduler.type "celery" }}
             - name: "RESULT_BACKEND"
               value: "redis://default:{{ .Values.credentials.redis.password }}@{{ include "clp.fullname" . }}-redis:6379/{{ .Values.clpConfig.redis.compression_backend_database }}"
+            {{- end }}
+            {{- if eq .Values.clpConfig.compression_scheduler.type "spider" }}
+            - name: "SPIDER_LOG_DIR"
+              value: "/var/log/compression_worker"
+            - name: "SPIDER_STORAGE_URL"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "clp.fullname" . }}-database
+                  key: "spider_storage_url"
+            {{- end }}
           volumeMounts:
             - name: "config"
               mountPath: "/etc/clp-config.yaml"
@@ -80,6 +95,7 @@ spec:
               mountPath: "/var/data/staged-archives"
             - name: "tmp"
               mountPath: "/var/tmp"
+          {{- if eq .Values.clpConfig.compression_scheduler.type "celery" }}
           command: [
             "python3", "-u",
             "/opt/clp/lib/python3/site-packages/bin/celery",
@@ -91,6 +107,14 @@ spec:
             "-Q", "compression",
             "-n", "compression-worker"
           ]
+          {{- else if eq .Values.clpConfig.compression_scheduler.type "spider" }}
+          command: [
+            "python3", "-u",
+            "-m", "job_orchestration.executor.start-spider-worker",
+            "--host", "compression_worker",
+            "--num-workers", "{{ .Values.workerConcurrency }}"
+          ]
+          {{- end }}
       volumes:
         - name: "config"
           configMap:
