@@ -17,32 +17,23 @@ spec:
         {{- include "clp.labels" . | nindent 8 }}
         app.kubernetes.io/component: "webui"
     spec:
+      serviceAccountName: {{ include "clp.fullname" . }}-job-watcher
       terminationGracePeriodSeconds: 60
       securityContext:
         runAsUser: {{ .Values.securityContext.firstParty.uid }}
         runAsGroup: {{ .Values.securityContext.firstParty.gid }}
         fsGroup: {{ .Values.securityContext.firstParty.gid }}
       initContainers:
-        - name: "wait-for-database"
-          image: "busybox:latest"
-          command:
-            - "sh"
-            - "-c"
-            - >-
-              until nc -z {{ include "clp.fullname" . }}-database 3306;
-                do echo Waiting for database to be ready...;
-                sleep 2;
-              done
-        - name: "wait-for-results-cache"
-          image: "busybox:latest"
-          command:
-            - "sh"
-            - "-c"
-            - >-
-              until nc -z {{ include "clp.fullname" . }}-results-cache 27017;
-                do echo Waiting for results-cache to be ready...;
-                sleep 2;
-              done
+        - {{- include "clp.waitFor" (dict
+            "root" .
+            "type" "job"
+            "name" "db-table-creator"
+          ) | nindent 10 }}
+        - {{- include "clp.waitFor" (dict
+            "root" .
+            "type" "job"
+            "name" "results-cache-indices-creator"
+          ) | nindent 10 }}
       containers:
         - name: "webui"
           image: "{{ include "clp.image.ref" . }}"
@@ -80,7 +71,7 @@ spec:
               mountPath: "/opt/clp/var/www/webui/server/dist/settings.json"
               subPath: "webui-server-settings.json"
               readOnly: true
-            - name: "streams"
+            - name: "shared-data-streams"
               mountPath: "/var/data/streams"
           command: [
             "/opt/clp/bin/node-22",
@@ -94,12 +85,14 @@ spec:
             {{- include "clp.livenessProbeTimings" . | nindent 12 }}
             tcpSocket: *webui-health-check
       volumes:
+        - {{- include "clp.pvcVolume" (dict
+            "root" .
+            "component_category" "shared-data"
+            "name" "streams"
+          ) | nindent 10 }}
         - name: "client-settings"
           configMap:
             name: {{ include "clp.fullname" . }}-config
         - name: "server-settings"
           configMap:
             name: {{ include "clp.fullname" . }}-config
-        - name: "streams"
-          persistentVolumeClaim:
-            claimName: {{ include "clp.fullname" . }}-streams

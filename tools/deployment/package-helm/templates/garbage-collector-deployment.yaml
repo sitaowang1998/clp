@@ -17,32 +17,23 @@ spec:
         {{- include "clp.labels" . | nindent 8 }}
         app.kubernetes.io/component: "garbage-collector"
     spec:
+      serviceAccountName: {{ include "clp.fullname" . }}-job-watcher
       terminationGracePeriodSeconds: 10
       securityContext:
         runAsUser: {{ .Values.securityContext.firstParty.uid }}
         runAsGroup: {{ .Values.securityContext.firstParty.gid }}
         fsGroup: {{ .Values.securityContext.firstParty.gid }}
       initContainers:
-        - name: "wait-for-database"
-          image: "busybox:latest"
-          command:
-            - "sh"
-            - "-c"
-            - >-
-              until nc -z {{ include "clp.fullname" . }}-database 3306;
-                do echo Waiting for database to be ready...;
-                sleep 2;
-              done
-        - name: "wait-for-results-cache"
-          image: "busybox:latest"
-          command:
-            - "sh"
-            - "-c"
-            - >-
-              until nc -z {{ include "clp.fullname" . }}-results-cache 27017;
-                do echo Waiting for results-cache to be ready...;
-                sleep 2;
-              done
+        - {{- include "clp.waitFor" (dict
+            "root" .
+            "type" "job"
+            "name" "db-table-creator"
+          ) | nindent 10 }}
+        - {{- include "clp.waitFor" (dict
+            "root" .
+            "type" "job"
+            "name" "results-cache-indices-creator"
+          ) | nindent 10 }}
       containers:
         - name: "garbage-collector"
           image: "{{ include "clp.image.ref" . }}"
@@ -73,9 +64,9 @@ spec:
               readOnly: true
             - name: "garbage-collector-logs"
               mountPath: "/var/log/garbage_collector"
-            - name: "archives"
+            - name: "shared-data-archives"
               mountPath: "/var/data/archives"
-            - name: "streams"
+            - name: "shared-data-streams"
               mountPath: "/var/data/streams"
           command: [
             "python3", "-u",
@@ -83,15 +74,21 @@ spec:
             "--config", "/etc/clp-config.yaml"
           ]
       volumes:
+        - {{- include "clp.pvcVolume" (dict
+            "root" .
+            "component_category" "garbage-collector"
+            "name" "logs"
+          ) | nindent 10 }}
+        - {{- include "clp.pvcVolume" (dict
+            "root" .
+            "component_category" "shared-data"
+            "name" "archives"
+          ) | nindent 10 }}
+        - {{- include "clp.pvcVolume" (dict
+            "root" .
+            "component_category" "shared-data"
+            "name" "streams"
+          ) | nindent 10 }}
         - name: "config"
           configMap:
             name: {{ include "clp.fullname" . }}-config
-        - name: "garbage-collector-logs"
-          persistentVolumeClaim:
-            claimName: {{ include "clp.fullname" . }}-garbage-collector-logs
-        - name: "archives"
-          persistentVolumeClaim:
-            claimName: {{ include "clp.fullname" . }}-archives
-        - name: "streams"
-          persistentVolumeClaim:
-            claimName: {{ include "clp.fullname" . }}-streams

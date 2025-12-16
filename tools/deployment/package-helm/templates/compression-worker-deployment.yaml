@@ -17,40 +17,26 @@ spec:
         {{- include "clp.labels" . | nindent 8 }}
         app.kubernetes.io/component: "compression-worker"
     spec:
+      serviceAccountName: {{ include "clp.fullname" . }}-job-watcher
       terminationGracePeriodSeconds: 60
       securityContext:
         runAsUser: {{ .Values.securityContext.firstParty.uid }}
         runAsGroup: {{ .Values.securityContext.firstParty.gid }}
         fsGroup: {{ .Values.securityContext.firstParty.gid }}
       initContainers:
-        - name: "wait-for-queue"
-          image: "busybox:latest"
-          command:
-            - "sh"
-            - "-c"
-            - >-
-              until nc -z {{ include "clp.fullname" . }}-queue 5672;
-                do echo Waiting for queue to be ready...;
-                sleep 2;
-              done
-        - name: "wait-for-redis"
-          image: "busybox:latest"
-          command:
-            - "sh"
-            - "-c"
-            - >-
-              until nc -z {{ include "clp.fullname" . }}-redis 6379;
-                do echo Waiting for redis to be ready...;
-                sleep 2;
-              done
+        - {{- include "clp.waitFor" (dict "root" . "type" "service" "name" "queue") | nindent 10 }}
+        - {{- include "clp.waitFor" (dict "root" . "type" "service" "name" "redis") | nindent 10 }}
       containers:
         - name: "compression-worker"
           image: "{{ include "clp.image.ref" . }}"
           imagePullPolicy: "{{ .Values.image.clpPackage.pullPolicy }}"
           env:
             {{- if eq .Values.clpConfig.compression_scheduler.type "celery" }}
-            - name: "BROKER_URL"
-              value: "amqp://{{ .Values.credentials.queue.username }}:{{ .Values.credentials.queue.password }}@{{ include "clp.fullname" . }}-queue:5672"
+            - {{- include "clp.celeryBrokerUrlEnvVar" . | nindent 14 }}
+            - {{- include "clp.celeryResultBackendEnvVar" (dict
+              "root" .
+              "database" .Values.clpConfig.redis.compression_backend_database
+            ) | nindent 14 }}
             {{- end }}
             - name: "CLP_CONFIG_PATH"
               value: "/etc/clp-config.yaml"
@@ -66,10 +52,6 @@ spec:
             {{- end }}
             - name: "PYTHONPATH"
               value: "/opt/clp/lib/python3/site-packages"
-            {{- if eq .Values.clpConfig.compression_scheduler.type "celery" }}
-            - name: "RESULT_BACKEND"
-              value: "redis://default:{{ .Values.credentials.redis.password }}@{{ include "clp.fullname" . }}-redis:6379/{{ .Values.clpConfig.redis.compression_backend_database }}"
-            {{- end }}
             {{- if eq .Values.clpConfig.compression_scheduler.type "spider" }}
             - name: "SPIDER_LOG_DIR"
               value: "/var/log/compression_worker"
@@ -80,21 +62,21 @@ spec:
                   key: "spider_storage_url"
             {{- end }}
           volumeMounts:
+            - name: "compression-worker-logs"
+              mountPath: "/var/log/compression_worker"
+            - name: "compression-worker-staged-archives"
+              mountPath: "/var/data/staged-archives"
+            - name: "compression-worker-tmp"
+              mountPath: "/var/tmp"
             - name: "config"
               mountPath: "/etc/clp-config.yaml"
               subPath: "clp-config.yaml"
               readOnly: true
-            - name: "compression-worker-logs"
-              mountPath: "/var/log/compression_worker"
-            - name: "archives"
-              mountPath: "/var/data/archives"
             - name: "logs-input"
               mountPath: "/mnt/logs"
               readOnly: true
-            - name: "staged-archives"
-              mountPath: "/var/data/staged-archives"
-            - name: "tmp"
-              mountPath: "/var/tmp"
+            - name: "shared-data-archives"
+              mountPath: "/var/data/archives"
           {{- if eq .Values.clpConfig.compression_scheduler.type "celery" }}
           command: [
             "python3", "-u",
@@ -116,22 +98,30 @@ spec:
           ]
           {{- end }}
       volumes:
+        - {{- include "clp.pvcVolume" (dict
+            "root" .
+            "component_category" "compression-worker"
+            "name" "logs"
+          ) | nindent 10 }}
+        - {{- include "clp.pvcVolume" (dict
+            "root" .
+            "component_category" "compression-worker"
+            "name" "staged-archives"
+          ) | nindent 10 }}
+        - {{- include "clp.pvcVolume" (dict
+            "root" .
+            "component_category" "compression-worker"
+            "name" "tmp"
+          ) | nindent 10 }}
+        - {{- include "clp.pvcVolume" (dict
+            "root" .
+            "component_category" "shared-data"
+            "name" "archives"
+          ) | nindent 10 }}
         - name: "config"
           configMap:
             name: {{ include "clp.fullname" . }}-config
-        - name: "compression-worker-logs"
-          persistentVolumeClaim:
-            claimName: {{ include "clp.fullname" . }}-compression-worker-logs
-        - name: "archives"
-          persistentVolumeClaim:
-            claimName: {{ include "clp.fullname" . }}-archives
         - name: "logs-input"
           hostPath:
             path: "{{ .Values.clpConfig.logs_input.directory }}"
             type: "Directory"
-        - name: "staged-archives"
-          persistentVolumeClaim:
-            claimName: {{ include "clp.fullname" . }}-staged-archives
-        - name: "tmp"
-          persistentVolumeClaim:
-            claimName: {{ include "clp.fullname" . }}-tmp

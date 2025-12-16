@@ -17,76 +17,63 @@ spec:
         {{- include "clp.labels" . | nindent 8 }}
         app.kubernetes.io/component: "compression-scheduler"
     spec:
+      serviceAccountName: {{ include "clp.fullname" . }}-job-watcher
       terminationGracePeriodSeconds: 300
       securityContext:
         runAsUser: {{ .Values.securityContext.firstParty.uid }}
         runAsGroup: {{ .Values.securityContext.firstParty.gid }}
         fsGroup: {{ .Values.securityContext.firstParty.gid }}
       initContainers:
-        - name: "wait-for-database"
-          image: "busybox:latest"
-          command:
-            - "sh"
-            - "-c"
-            - >-
-              until nc -z {{ include "clp.fullname" . }}-database 3306;
-                do echo Waiting for database to be ready...;
-                sleep 2;
-              done
-        - name: "wait-for-queue"
-          image: "busybox:latest"
-          command:
-            - "sh"
-            - "-c"
-            - >-
-              until nc -z {{ include "clp.fullname" . }}-queue 5672;
-                do echo Waiting for queue to be ready...;
-                sleep 2;
-              done
-        - name: "wait-for-redis"
-          image: "busybox:latest"
-          command:
-            - "sh"
-            - "-c"
-            - >-
-              until nc -z {{ include "clp.fullname" . }}-redis 6379;
-                do echo Waiting for redis to be ready...;
-                sleep 2;
-              done
+        - {{- include "clp.waitFor" (dict
+            "root" .
+            "type" "job"
+            "name" "db-table-creator"
+          ) | nindent 10 }}
+        - {{- include "clp.waitFor" (dict
+            "root" .
+            "type" "service"
+            "name" "queue"
+          ) | nindent 10 }}
+        - {{- include "clp.waitFor" (dict
+            "root" .
+            "type" "service"
+            "name" "redis"
+          ) | nindent 10 }}
       containers:
         - name: "compression-scheduler"
           image: "{{ include "clp.image.ref" . }}"
           imagePullPolicy: "{{ .Values.image.clpPackage.pullPolicy }}"
           env:
-            - name: "BROKER_URL"
-              value: "amqp://{{ .Values.credentials.queue.username }}:{{ .Values.credentials.queue.password }}@{{ include "clp.fullname" . }}-queue:5672"
-            - name: "CLP_DB_USER"
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "clp.fullname" . }}-database
-                  key: "username"
+            - {{- include "clp.celeryBrokerUrlEnvVar" . | nindent 14 }}
+            - {{- include "clp.celeryResultBackendEnvVar" (dict
+                "root" .
+                "database" .Values.clpConfig.redis.compression_backend_database
+              ) | nindent 14 }}
             - name: "CLP_DB_PASS"
               valueFrom:
                 secretKeyRef:
                   name: {{ include "clp.fullname" . }}-database
                   key: "password"
+            - name: "CLP_DB_USER"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "clp.fullname" . }}-database
+                  key: "username"
             - name: "CLP_LOGGING_LEVEL"
               value: {{ .Values.clpConfig.compression_scheduler.logging_level | quote }}
             - name: "CLP_LOGS_DIR"
               value: "/var/log/compression_scheduler"
             - name: "PYTHONPATH"
               value: "/opt/clp/lib/python3/site-packages"
-            - name: "RESULT_BACKEND"
-              value: "redis://default:{{ .Values.credentials.redis.password }}@{{ include "clp.fullname" . }}-redis:6379/{{ .Values.clpConfig.redis.compression_backend_database }}"
           volumeMounts:
+            - name: "compression-scheduler-logs"
+              mountPath: "/var/log/compression_scheduler"
+            - name: "compression-scheduler-user-logs"
+              mountPath: "/var/log/user"
             - name: "config"
               mountPath: "/etc/clp-config.yaml"
               subPath: "clp-config.yaml"
               readOnly: true
-            - name: "compression-scheduler-logs"
-              mountPath: "/var/log/compression_scheduler"
-            - name: "user-logs"
-              mountPath: "/var/log/user"
             - name: "logs-input"
               mountPath: "/mnt/logs"
               readOnly: true
@@ -96,15 +83,19 @@ spec:
             "--config", "/etc/clp-config.yaml"
           ]
       volumes:
+        - {{- include "clp.pvcVolume" (dict
+            "root" .
+            "component_category" "compression-scheduler"
+            "name" "logs"
+          ) | nindent 10 }}
+        - {{- include "clp.pvcVolume" (dict
+            "root" .
+            "component_category" "compression-scheduler"
+            "name" "user-logs"
+          ) | nindent 10 }}
         - name: "config"
           configMap:
             name: {{ include "clp.fullname" . }}-config
-        - name: "compression-scheduler-logs"
-          persistentVolumeClaim:
-            claimName: {{ include "clp.fullname" . }}-compression-scheduler-logs
-        - name: "user-logs"
-          persistentVolumeClaim:
-            claimName: {{ include "clp.fullname" . }}-user-logs
         - name: "logs-input"
           hostPath:
             path: "{{ .Values.clpConfig.logs_input.directory }}"
