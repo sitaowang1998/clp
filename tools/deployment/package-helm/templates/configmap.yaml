@@ -37,7 +37,7 @@ data:
       logging_level: {{ .Values.clpConfig.compression_scheduler.logging_level | quote }}
       max_concurrent_tasks_per_job: {{
         .Values.clpConfig.compression_scheduler.max_concurrent_tasks_per_job }}
-      type: {{ .Values.clpConfig.compression_scheduler.type | quote }}}
+      type: {{ .Values.clpConfig.compression_scheduler.type | quote }}
     compression_worker:
       logging_level: {{ .Values.clpConfig.compression_worker.logging_level | quote }}
     data_directory: "/var/data"
@@ -47,7 +47,7 @@ data:
       host: {{ include "clp.fullname" . }}-database
       name:
         clp: {{ .Values.clpConfig.database.names.clp | quote }}
-        spider: {{ .Values.clpConfig.database.names.spider | quote }}}
+        spider: {{ .Values.clpConfig.database.names.spider | quote }}
       port: 3306
       ssl_cert: null
       type: {{ .Values.clpConfig.database.type | quote }}
