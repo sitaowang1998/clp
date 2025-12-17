@@ -1,7 +1,8 @@
 {{- if eq .Values.clpConfig.compression_scheduler.type "spider" }}
 {{- include "clp.createPvc" (dict
   "root" .
-  "component" "spider-scheduler-logs"
+  "component_catagory" "spider-scheduler"
+  "name" "logs"
   "capacity" "5Gi"
   "accessModes" (list "ReadWriteOnce")
 ) }}

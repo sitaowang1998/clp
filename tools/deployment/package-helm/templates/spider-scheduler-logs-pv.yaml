@@ -1,8 +1,8 @@
 {{- if eq .Values.clpConfig.compression_scheduler.type "spider" }}
 {{- include "clp.createLocalPv" (dict
   "root" .
-  "name" (printf "%s-spider-scheduler-logs" (include "clp.fullname" .))
-  "component" "spider-scheduler-logs"
+  "component_catagory" "spider-scheduler"
+  "name" "logs"
   "nodeRole" "control-plane"
   "capacity" "5Gi"
   "accessModes" (list "ReadWriteOnce")

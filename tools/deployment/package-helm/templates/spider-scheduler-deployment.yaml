@@ -54,18 +54,18 @@ spec:
               mountPath: "/etc/clp-config.yaml"
               subPath: "clp-config.yaml"
               readOnly: true
-            - name: "spider-scheduler-logs"
-              mountPath: "/var/log/spider_scheduler"
           command: [
             "/opt/clp/bin/spider_scheduler",
             "--host", "scheduler",
             "--port", "6000",
           ]
       volumes:
+        - {{- include "clp.pvcVolume" (dict
+            "root" .
+            "component_category" "spider-scheduler"
+            "name" "logs"
+          ) | nindent 10 }}
         - name: "config"
           configMap:
             name: {{ include "clp.fullname" . }}-config
-        - name: "spider-scheduler-logs"
-          persistentVolumeClaim:
-            claimName: {{ include "clp.fullname" . }}-spider-scheduler-logs
 {{- end }}
