@@ -59,6 +59,18 @@ spec:
                 secretKeyRef:
                   name: {{ include "clp.fullname" . }}-database
                   key: "username"
+            {{- if eq .Values.clpConfig.compression_scheduler.type "spider" }}
+            - name: "SPIDER_DB_USER"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "clp.fullname" . }}-database
+                  key: "spider_username"
+            - name: "SPIDER_DB_PASS"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "clp.fullname" . }}-database
+                  key: "spider_password"
+            {{- end}}
             - name: "CLP_LOGGING_LEVEL"
               value: {{ .Values.clpConfig.compression_scheduler.logging_level | quote }}
             - name: "CLP_LOGS_DIR"
