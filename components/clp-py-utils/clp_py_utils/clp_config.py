@@ -3,7 +3,6 @@ import pathlib
 from enum import auto
 from types import MappingProxyType
 from typing import Annotated, Any, ClassVar, Literal
-from urllib.parse import urlencode
 
 import yaml
 from pydantic import (
@@ -325,22 +324,6 @@ class Database(BaseModel):
         d["type"] = DatabaseEngine.MYSQL.value
 
         return d
-
-    def get_container_url(self, user_type: ClpDbUserType = ClpDbUserType.CLP) -> str:
-        """
-        Returns a JDBC URL for connecting to the database from within a container.
-        """
-        self.ensure_credentials_loaded(user_type)
-        query = urlencode(
-            {
-                "user": self.credentials[user_type].username,
-                "password": self.credentials[user_type].password,
-            }
-        )
-        return (
-            f"jdbc:{self.type.value}://{DB_COMPONENT_NAME}:{self.DEFAULT_PORT}/"
-            f"{self.names[_DB_USER_TYPE_TO_DB_NAME_TYPE[user_type]]}?{query}"
-        )
 
     def dump_to_primitive_dict(self) -> dict[str, Any]:
         """:return: A dictionary representation of this model, excluding credentials."""
