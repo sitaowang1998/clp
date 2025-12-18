@@ -24,16 +24,11 @@ spec:
         runAsGroup: {{ .Values.securityContext.firstParty.gid }}
         fsGroup: {{ .Values.securityContext.firstParty.gid }}
       initContainers:
-        - name: "wait-for-database"
-          image: "busybox:latest"
-          command:
-            - "sh"
-            - "-c"
-            - >-
-              until nc -z {{ include "clp.fullname" . }}-database 3306;
-                do echo Waiting for database to be ready...;
-                sleep 2;
-              done
+        - {{- include "clp.waitFor" (dict
+            "root" .
+            "type" "job"
+            "name" "db-table-creator"
+          ) | nindent 10 }}
       containers:
         - name: "spider-scheduler"
           image: "{{ include "clp.image.ref" . }}"
@@ -56,7 +51,7 @@ spec:
               readOnly: true
           command: [
             "/opt/clp/bin/spider_scheduler",
-            "--host", "scheduler",
+            "--host", "{{ include "clp.fullname" . }}-scheduler",
             "--port", "6000",
           ]
       volumes:
