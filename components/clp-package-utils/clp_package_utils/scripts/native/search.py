@@ -7,6 +7,7 @@ import logging
 import pathlib
 import socket
 import sys
+import time
 
 import msgpack
 import psutil
@@ -75,6 +76,8 @@ def create_and_monitor_job_in_db(
     job_id = submit_query_job(sql_adapter, search_config, QueryJobType.SEARCH_OR_AGGREGATION)
     logger.info("Job submitted.")
 
+    # Need to wait after query scheduler first handles it but reducer for it are not created
+    time.sleep(0.1)
     # Cancels the job
     cancel_query_job(sql_adapter, job_id)
     logger.info("Job cancelled.")
