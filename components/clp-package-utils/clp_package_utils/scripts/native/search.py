@@ -73,9 +73,11 @@ def create_and_monitor_job_in_db(
 
     sql_adapter = SqlAdapter(db_config)
     job_id = submit_query_job(sql_adapter, search_config, QueryJobType.SEARCH_OR_AGGREGATION)
+    logger.info("Job submitted.")
 
     # Cancels the job
     cancel_query_job(sql_adapter, job_id)
+    logger.info("Job cancelled.")
 
     job_status = wait_for_query_job(sql_adapter, job_id)
 
