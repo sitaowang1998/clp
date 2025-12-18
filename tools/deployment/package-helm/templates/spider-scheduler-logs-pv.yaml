@@ -1,7 +1,7 @@
 {{- if eq .Values.clpConfig.compression_scheduler.type "spider" }}
 {{- include "clp.createLocalPv" (dict
   "root" .
-  "component_catagory" "spider-scheduler"
+  "component_category" "spider-scheduler"
   "name" "logs"
   "nodeRole" "control-plane"
   "capacity" "5Gi"
