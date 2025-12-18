@@ -28,7 +28,7 @@ from clp_package_utils.scripts.native.utils import (
     run_function_in_process,
     submit_query_job,
     validate_dataset_exists,
-    wait_for_query_job,
+    wait_for_query_job, cancel_query_job,
 )
 
 logger = logging.getLogger(__file__)
@@ -73,6 +73,10 @@ def create_and_monitor_job_in_db(
 
     sql_adapter = SqlAdapter(db_config)
     job_id = submit_query_job(sql_adapter, search_config, QueryJobType.SEARCH_OR_AGGREGATION)
+
+    # Cancels the job
+    cancel_query_job(sql_adapter, job_id)
+
     job_status = wait_for_query_job(sql_adapter, job_id)
 
     if do_count_aggregation is None and count_by_time_bucket_size is None:
