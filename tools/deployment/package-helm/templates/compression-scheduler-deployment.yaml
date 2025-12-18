@@ -29,6 +29,7 @@ spec:
             "type" "job"
             "name" "db-table-creator"
           ) | nindent 10 }}
+        {{- if eq .Values.clpConfig.compression_scheduler.type "celery" }}
         - {{- include "clp.waitFor" (dict
             "root" .
             "type" "service"
@@ -39,6 +40,7 @@ spec:
             "type" "service"
             "name" "redis"
           ) | nindent 10 }}
+        {{- end }}
       containers:
         - name: "compression-scheduler"
           image: "{{ include "clp.image.ref" . }}"

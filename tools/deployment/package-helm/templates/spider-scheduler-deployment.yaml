@@ -18,6 +18,7 @@ spec:
         {{- include "clp.labels" . | nindent 8 }}
         app.kubernetes.io/component: "spider-scheduler"
     spec:
+      serviceAccountName: {{ include "clp.fullname" . }}-job-watcher
       terminationGracePeriodSeconds: 300
       securityContext:
         runAsUser: {{ .Values.securityContext.firstParty.uid }}
@@ -51,7 +52,7 @@ spec:
               readOnly: true
           command: [
             "/opt/clp/bin/spider_scheduler",
-            "--host", "{{ include "clp.fullname" . }}-scheduler",
+            "--host", "{{ include "clp.fullname" . }}-spider-scheduler",
             "--port", "6000",
           ]
       volumes:

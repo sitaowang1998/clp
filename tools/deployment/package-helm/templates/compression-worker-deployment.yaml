@@ -24,8 +24,16 @@ spec:
         runAsGroup: {{ .Values.securityContext.firstParty.gid }}
         fsGroup: {{ .Values.securityContext.firstParty.gid }}
       initContainers:
+        {{- if eq .Values.clpConfig.compression_scheduler.type "spider" }}
+        - {{- include "clp.waitFor" (dict
+            "root" .
+            "type" "job"
+            "name" "db-table-creator"
+          ) | nindent 10 }}
+        {{- else }}
         - {{- include "clp.waitFor" (dict "root" . "type" "service" "name" "queue") | nindent 10 }}
         - {{- include "clp.waitFor" (dict "root" . "type" "service" "name" "redis") | nindent 10 }}
+        {{- end }}
       containers:
         - name: "compression-worker"
           image: "{{ include "clp.image.ref" . }}"
