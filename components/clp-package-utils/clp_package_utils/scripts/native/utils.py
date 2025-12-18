@@ -72,6 +72,25 @@ def submit_query_job(
         return db_cursor.lastrowid
 
 
+def cancel_query_job(sql_adapter: SqlAdapter, job_id: int):
+    """
+    Cancels a query job.
+    :param sql_adapter:
+    :return: The job's ID.
+    """
+    with (
+        closing(sql_adapter.create_connection(True)) as db_conn,
+        closing(db_conn.cursor(dictionary=True)) as db_cursor,
+    ):
+        # Create job
+        db_cursor.execute(
+            f"UPDATE `{QUERY_JOBS_TABLE_NAME}` SET `status` = {QueryJobStatus.CANCELLING}"
+            f" WHERE `id` = %s AND `status` in ({QueryJobStatus.PENDING, QueryJobStatus.RUNNING})",
+            (job_id,),
+        )
+        db_conn.commit()
+
+
 def validate_dataset_exists(db_config: Database, dataset: str) -> None:
     """
     Validates that `dataset` exists in the metadata database.
