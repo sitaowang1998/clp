@@ -85,7 +85,7 @@ def cancel_query_job(sql_adapter: SqlAdapter, job_id: int):
         # Create job
         db_cursor.execute(
             f"UPDATE `{QUERY_JOBS_TABLE_NAME}` SET `status` = {QueryJobStatus.CANCELLING}"
-            f" WHERE `id` = %s AND `status` in ({QueryJobStatus.PENDING, QueryJobStatus.RUNNING})",
+            f" WHERE `id` = %s AND `status` in ({QueryJobStatus.PENDING}, {QueryJobStatus.RUNNING})",
             (job_id,),
         )
         db_conn.commit()
