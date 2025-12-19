@@ -1,3 +1,5 @@
+{{- if or .Values.clpConfig.archive_output.retention_period
+          .Values.clpConfig.results_cache.retention_period }}
 apiVersion: "apps/v1"
 kind: "Deployment"
 metadata:
@@ -39,16 +41,16 @@ spec:
           image: "{{ include "clp.image.ref" . }}"
           imagePullPolicy: "{{ .Values.image.clpPackage.pullPolicy }}"
           env:
-            - name: "CLP_DB_USER"
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "clp.fullname" . }}-database
-                  key: "username"
             - name: "CLP_DB_PASS"
               valueFrom:
                 secretKeyRef:
                   name: {{ include "clp.fullname" . }}-database
                   key: "password"
+            - name: "CLP_DB_USER"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "clp.fullname" . }}-database
+                  key: "username"
             - name: "CLP_HOME"
               value: "/opt/clp"
             - name: "CLP_LOGGING_LEVEL"
@@ -58,16 +60,34 @@ spec:
             - name: "PYTHONPATH"
               value: "/opt/clp/lib/python3/site-packages"
           volumeMounts:
+            - name: {{ include "clp.volumeName" (dict
+                "component_category" "garbage-collector"
+                "name" "logs"
+              ) | quote }}
+              mountPath: "/var/log/garbage_collector"
             - name: "config"
               mountPath: "/etc/clp-config.yaml"
               subPath: "clp-config.yaml"
               readOnly: true
-            - name: "garbage-collector-logs"
-              mountPath: "/var/log/garbage_collector"
-            - name: "shared-data-archives"
+            {{- if eq .Values.clpConfig.archive_output.storage.type "fs" }}
+            - name: {{ include "clp.volumeName" (dict
+                "component_category" "shared-data"
+                "name" "archives"
+              ) | quote }}
               mountPath: "/var/data/archives"
-            - name: "shared-data-streams"
+            {{- end }}
+            {{- if .Values.clpConfig.aws_config_directory }}
+            - name: "aws-config"
+              mountPath: "/opt/clp/.aws"
+              readOnly: true
+            {{- end }}
+            {{- if eq .Values.clpConfig.stream_output.storage.type "fs" }}
+            - name: {{ include "clp.volumeName" (dict
+                "component_category" "shared-data"
+                "name" "streams"
+              ) | quote }}
               mountPath: "/var/data/streams"
+            {{- end }}
           command: [
             "python3", "-u",
             "-m", "job_orchestration.garbage_collector.garbage_collector",
@@ -79,16 +99,27 @@ spec:
             "component_category" "garbage-collector"
             "name" "logs"
           ) | nindent 10 }}
+        - name: "config"
+          configMap:
+            name: {{ include "clp.fullname" . }}-config
+        {{- if eq .Values.clpConfig.archive_output.storage.type "fs" }}
         - {{- include "clp.pvcVolume" (dict
             "root" .
             "component_category" "shared-data"
             "name" "archives"
           ) | nindent 10 }}
+        {{- end }}
+        {{- with .Values.clpConfig.aws_config_directory }}
+        - name: "aws-config"
+          hostPath:
+            path: {{ . | quote }}
+            type: "Directory"
+        {{- end }}
+        {{- if eq .Values.clpConfig.stream_output.storage.type "fs" }}
         - {{- include "clp.pvcVolume" (dict
             "root" .
             "component_category" "shared-data"
             "name" "streams"
           ) | nindent 10 }}
-        - name: "config"
-          configMap:
-            name: {{ include "clp.fullname" . }}-config
+        {{- end }}
+{{- end }}

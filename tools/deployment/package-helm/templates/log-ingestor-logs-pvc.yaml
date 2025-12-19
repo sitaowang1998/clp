@@ -1,7 +1,7 @@
-{{- if .Values.clpConfig.api_server }}
+{{- if eq .Values.clpConfig.logs_input.type "s3" }}
 {{- include "clp.createPvc" (dict
   "root" .
-  "component_category" "api-server"
+  "component_category" "log-ingestor"
   "name" "logs"
   "capacity" "5Gi"
   "accessModes" (list "ReadWriteOnce")

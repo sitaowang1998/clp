@@ -75,17 +75,28 @@ spec:
             - name: "PYTHONPATH"
               value: "/opt/clp/lib/python3/site-packages"
           volumeMounts:
-            - name: "compression-scheduler-logs"
+            - name: {{ include "clp.volumeName" (dict
+                "component_category" "compression-scheduler"
+                "name" "logs"
+              ) | quote }}
               mountPath: "/var/log/compression_scheduler"
-            - name: "compression-scheduler-user-logs"
+            - name: {{ include "clp.volumeName" (dict
+                "component_category" "compression-scheduler"
+                "name" "user-logs"
+              ) | quote }}
               mountPath: "/var/log/user"
             - name: "config"
               mountPath: "/etc/clp-config.yaml"
               subPath: "clp-config.yaml"
               readOnly: true
-            - name: "logs-input"
-              mountPath: "/mnt/logs"
+            {{- if .Values.clpConfig.aws_config_directory }}
+            - name: "aws-config"
+              mountPath: "/opt/clp/.aws"
               readOnly: true
+            {{- end }}
+            {{- if eq .Values.clpConfig.logs_input.type "fs" }}
+            - {{- include "clp.logsInputVolumeMount" . | nindent 14 }}
+            {{- end }}
           command: [
             "python3", "-u",
             "-m", "job_orchestration.scheduler.compress.compression_scheduler",
@@ -105,7 +116,12 @@ spec:
         - name: "config"
           configMap:
             name: {{ include "clp.fullname" . }}-config
-        - name: "logs-input"
+        {{- with .Values.clpConfig.aws_config_directory }}
+        - name: "aws-config"
           hostPath:
-            path: "{{ .Values.clpConfig.logs_input.directory }}"
+            path: {{ . | quote }}
             type: "Directory"
+        {{- end }}
+        {{- if eq .Values.clpConfig.logs_input.type "fs" }}
+        - {{- include "clp.logsInputVolume" . | nindent 10 }}
+        {{- end }}

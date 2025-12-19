@@ -17,7 +17,6 @@ spec:
         {{- include "clp.labels" . | nindent 8 }}
         app.kubernetes.io/component: "compression-worker"
     spec:
-      serviceAccountName: {{ include "clp.fullname" . }}-job-watcher
       terminationGracePeriodSeconds: 60
       securityContext:
         runAsUser: {{ .Values.securityContext.firstParty.uid }}
@@ -42,9 +41,9 @@ spec:
             {{- if eq .Values.clpConfig.compression_scheduler.type "celery" }}
             - {{- include "clp.celeryBrokerUrlEnvVar" . | nindent 14 }}
             - {{- include "clp.celeryResultBackendEnvVar" (dict
-              "root" .
-              "database" .Values.clpConfig.redis.compression_backend_database
-            ) | nindent 14 }}
+                "root" .
+                "database" .Values.clpConfig.redis.compression_backend_database
+              ) | nindent 14 }}
             {{- end }}
             - name: "CLP_CONFIG_PATH"
               value: "/etc/clp-config.yaml"
@@ -68,22 +67,46 @@ spec:
                   key: "spider_storage_url"
             {{- end }}
           volumeMounts:
-            - name: "compression-worker-logs"
+            - name: {{ include "clp.volumeName" (dict
+                "component_category" "compression-worker"
+                "name" "logs"
+              ) | quote }}
               mountPath: "/var/log/compression_worker"
-            - name: "compression-worker-staged-archives"
-              mountPath: "/var/data/staged-archives"
-            - name: "compression-worker-tmp"
+            - name: {{ include "clp.volumeName" (dict
+                "component_category" "compression-worker"
+                "name" "tmp"
+              ) | quote }}
               mountPath: "/var/tmp"
             - name: "config"
               mountPath: "/etc/clp-config.yaml"
               subPath: "clp-config.yaml"
               readOnly: true
-            - name: "logs-input"
-              mountPath: "/mnt/logs"
-              readOnly: true
-            - name: "shared-data-archives"
+            {{- if eq .Values.clpConfig.archive_output.storage.type "fs" }}
+            - name: {{ include "clp.volumeName" (dict
+                "component_category" "shared-data"
+                "name" "archives"
+              ) | quote }}
               mountPath: "/var/data/archives"
+<<<<<<< HEAD
           {{- if eq .Values.clpConfig.compression_scheduler.type "celery" }}
+=======
+            {{- end }}
+            {{- if .Values.clpConfig.aws_config_directory }}
+            - name: "aws-config"
+              mountPath: "/opt/clp/.aws"
+              readOnly: true
+            {{- end }}
+            {{- if eq .Values.clpConfig.logs_input.type "fs" }}
+            - {{- include "clp.logsInputVolumeMount" . | nindent 14 }}
+            {{- end }}
+            {{- if eq .Values.clpConfig.archive_output.storage.type "s3" }}
+            - name: {{ include "clp.volumeName" (dict
+                "component_category" "compression-worker"
+                "name" "staged-archives"
+              ) | quote }}
+              mountPath: "/var/data/staged-archives"
+            {{- end }}
+>>>>>>> helm
           command: [
             "python3", "-u",
             "/opt/clp/lib/python3/site-packages/bin/celery",
@@ -112,22 +135,31 @@ spec:
         - {{- include "clp.pvcVolume" (dict
             "root" .
             "component_category" "compression-worker"
-            "name" "staged-archives"
-          ) | nindent 10 }}
-        - {{- include "clp.pvcVolume" (dict
-            "root" .
-            "component_category" "compression-worker"
             "name" "tmp"
           ) | nindent 10 }}
+        - name: "config"
+          configMap:
+            name: {{ include "clp.fullname" . }}-config
+        {{- if eq .Values.clpConfig.archive_output.storage.type "fs" }}
         - {{- include "clp.pvcVolume" (dict
             "root" .
             "component_category" "shared-data"
             "name" "archives"
           ) | nindent 10 }}
-        - name: "config"
-          configMap:
-            name: {{ include "clp.fullname" . }}-config
-        - name: "logs-input"
+        {{- end }}
+        {{- with .Values.clpConfig.aws_config_directory }}
+        - name: "aws-config"
           hostPath:
-            path: "{{ .Values.clpConfig.logs_input.directory }}"
+            path: {{ . | quote }}
             type: "Directory"
+        {{- end }}
+        {{- if eq .Values.clpConfig.logs_input.type "fs" }}
+        - {{- include "clp.logsInputVolume" . | nindent 10 }}
+        {{- end }}
+        {{- if eq .Values.clpConfig.archive_output.storage.type "s3" }}
+        - {{- include "clp.pvcVolume" (dict
+            "root" .
+            "component_category" "compression-worker"
+            "name" "staged-archives"
+          ) | nindent 10 }}
+        {{- end }}

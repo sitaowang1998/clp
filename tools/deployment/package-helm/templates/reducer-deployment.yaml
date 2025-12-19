@@ -50,12 +50,15 @@ spec:
             - name: "PYTHONPATH"
               value: "/opt/clp/lib/python3/site-packages"
           volumeMounts:
+            - name: {{ include "clp.volumeName" (dict
+                "component_category" "reducer"
+                "name" "logs"
+              ) | quote }}
+              mountPath: "/var/log/reducer"
             - name: "config"
               mountPath: "/etc/clp-config.yaml"
               subPath: "clp-config.yaml"
               readOnly: true
-            - name: "reducer-logs"
-              mountPath: "/var/log/reducer"
           command: [
             "python3", "-u",
             "-m", "job_orchestration.reducer.reducer",

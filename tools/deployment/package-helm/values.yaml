@@ -54,7 +54,6 @@ clpConfig:
     logging_level: "INFO"
 
   query_scheduler:
-    port: 7000
     jobs_poll_delay: 0.1  # seconds
     num_archives_to_search_per_sub_job: 16
     logging_level: "INFO"
@@ -82,7 +81,7 @@ clpConfig:
     logging_level: "INFO"
 
   webui:
-    port: 30400
+    port: 30000
     results_metadata_collection_name: "results-metadata"
     rate_limit: 1000
 
@@ -146,9 +145,23 @@ clpConfig:
       initial_backoff_ms: 100
       max_backoff_ms: 5000
 
+  # log-ingestor config. Currently, the config is applicable only if `logs_input.type` is "s3".
+  log_ingestor:
+    port: 30302
+    # The timeout (in seconds) after which the log buffer is flushed for compression if no new
+    # input arrives.
+    buffer_flush_timeout: 300
+    # The log buffer size (in bytes) that triggers a flush for compression.
+    buffer_flush_threshold: 268435456  # 256 MiB
+    # The capacity of the internal channel used for communication between an ingestion job and the
+    # log buffer.
+    channel_capacity: 10
+    logging_level: "INFO"
+
   # Presto client config
   presto: null
-  #   port: 30889
+  #   host: "localhost"
+  #   port: 8080
 
   # Location where other data (besides archives) are stored. It will be created if
   # it doesn't exist.

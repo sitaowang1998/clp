@@ -1,3 +1,4 @@
+{{- if .Values.clpConfig.api_server }}
 apiVersion: "apps/v1"
 kind: "Deployment"
 metadata:
@@ -39,30 +40,40 @@ spec:
           image: "{{ include "clp.image.ref" . }}"
           imagePullPolicy: "{{ .Values.image.clpPackage.pullPolicy }}"
           env:
-            - name: "CLP_DB_USER"
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "clp.fullname" . }}-database
-                  key: "username"
             - name: "CLP_DB_PASS"
               valueFrom:
                 secretKeyRef:
                   name: {{ include "clp.fullname" . }}-database
                   key: "password"
+            - name: "CLP_DB_USER"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "clp.fullname" . }}-database
+                  key: "username"
             - name: "CLP_LOGS_DIR"
               value: "/var/log/api_server"
             - name: "RUST_LOG"
-              value: "DEBUG"
+              value: "INFO"
           ports:
             - name: "api-server"
               containerPort: 3001
           volumeMounts:
-            - name: "api-server-logs"
+            - name: {{ include "clp.volumeName" (dict
+                "component_category" "api-server"
+                "name" "logs"
+              ) | quote }}
               mountPath: "/var/log/api_server"
             - name: "config"
               mountPath: "/etc/clp-config.yaml"
               subPath: "clp-config.yaml"
               readOnly: true
+            {{- if eq .Values.clpConfig.stream_output.storage.type "fs" }}
+            - name: {{ include "clp.volumeName" (dict
+                "component_category" "shared-data"
+                "name" "streams"
+              ) | quote }}
+              mountPath: "/var/data/streams"
+            {{- end }}
           command: [
             "/opt/clp/bin/api_server",
             "--host", "0.0.0.0",
@@ -86,3 +97,11 @@ spec:
         - name: "config"
           configMap:
             name: {{ include "clp.fullname" . }}-config
+        {{- if eq .Values.clpConfig.stream_output.storage.type "fs" }}
+        - {{- include "clp.pvcVolume" (dict
+            "root" .
+            "component_category" "shared-data"
+            "name" "streams"
+          ) | nindent 10 }}
+        {{- end }}
+{{- end }}
