@@ -1010,7 +1010,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12.3" },
     { name = "pymongo", specifier = ">=4.15.3" },
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "yscope-spider-py", editable = "../../spider/python/spider-py" },
+    { name = "yscope-spider-py", specifier = "==0.2.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -2664,28 +2664,17 @@ wheels = [
 
 [[package]]
 name = "yscope-spider-py"
-version = "0.2.0"
-source = { editable = "../../spider/python/spider-py" }
+version = "0.2.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lark" },
     { name = "mariadb" },
     { name = "msgpack" },
     { name = "msgpack-types" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "lark", specifier = ">=1.2.2" },
-    { name = "mariadb", specifier = ">=1.1.14" },
-    { name = "msgpack", specifier = ">=1.1.0,<1.2.0" },
-    { name = "msgpack-types", specifier = ">=0.5.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "mypy", specifier = ">=1.12.0" },
-    { name = "pytest", specifier = ">=9.0.0" },
-    { name = "ruff", specifier = ">=0.4.4" },
+sdist = { url = "https://files.pythonhosted.org/packages/2c/c7/70aee0d7736a17705fc73a26aff88e89624964cc380d718106c956afc388/yscope_spider_py-0.2.1.tar.gz", hash = "sha256:267fce65b3ab997d311cccc1d779a4176b908ef15afebd2c0189b5a34158d229", size = 25047, upload-time = "2025-12-18T20:09:33.374Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cf/0f/ead6cabcd60126e4bfaa668f418e1cbb1c1825d70f6c3e391d84469d6fad/yscope_spider_py-0.2.1-py3-none-any.whl", hash = "sha256:f18a9f0a6fc107d7c6e1ba054cb4246d69c813fdae0f52ca2bb6cc1390bbb1d2", size = 34629, upload-time = "2025-12-18T20:09:32.284Z" },
 ]
 
 [[package]]
