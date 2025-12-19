@@ -87,9 +87,6 @@ spec:
                 "name" "archives"
               ) | quote }}
               mountPath: "/var/data/archives"
-<<<<<<< HEAD
-          {{- if eq .Values.clpConfig.compression_scheduler.type "celery" }}
-=======
             {{- end }}
             {{- if .Values.clpConfig.aws_config_directory }}
             - name: "aws-config"
@@ -106,7 +103,7 @@ spec:
               ) | quote }}
               mountPath: "/var/data/staged-archives"
             {{- end }}
->>>>>>> helm
+          {{- if eq .Values.clpConfig.compression_scheduler.type "celery" }}
           command: [
             "python3", "-u",
             "/opt/clp/lib/python3/site-packages/bin/celery",
