@@ -17,9 +17,12 @@ dependencies = [
     "pydantic>=2.12.3",
     "pymongo>=4.15.3",
     "PyYAML>=6.0.3",
-    "yscope-spider-py==0.1.0",
+    "yscope-spider-py @ git+https://github.com/sitaowang1998/spider.git@channel-prototype#subdirectory=python/spider-py",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
