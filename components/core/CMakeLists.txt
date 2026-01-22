@@ -134,6 +134,13 @@ if(PROJECT_IS_TOP_LEVEL)
             cmake_policy(SET "CMP0144" "NEW")
         endif()
     endif()
+
+    # If previously undefined, `BUILD_TESTING` will be set to ON.
+    include(CTest)
+endif()
+
+if(BUILD_TESTING AND CLP_BUILD_TESTING)
+    set(CLP_ENABLE_TESTS ON)
 endif()
 
 if(CLP_NEED_ABSL)
@@ -442,6 +449,7 @@ set(SOURCE_FILES_unitTest
         src/clp/aws/AwsAuthenticationSigner.cpp
         src/clp/aws/AwsAuthenticationSigner.hpp
         src/clp/aws/constants.hpp
+        src/clp/aws/test/test_AwsAuthenticationSigner.cpp
         src/clp/BoundedReader.cpp
         src/clp/BoundedReader.hpp
         src/clp/BufferedReader.cpp
@@ -481,9 +489,13 @@ set(SOURCE_FILES_unitTest
         src/clp/EncodedVariableInterpreter.cpp
         src/clp/EncodedVariableInterpreter.hpp
         src/clp/ErrorCode.hpp
+        src/clp/ffi/EncodedTextAst.hpp
+        src/clp/ffi/EncodedTextAstError.cpp
+        src/clp/ffi/EncodedTextAstError.hpp
         src/clp/ffi/encoding_methods.cpp
         src/clp/ffi/encoding_methods.hpp
         src/clp/ffi/encoding_methods.inc
+        src/clp/ffi/test/test_EncodedTextAst.cpp
         src/clp/ffi/test/test_StringBlob.cpp
         src/clp/ffi/ir_stream/byteswap.hpp
         src/clp/ffi/ir_stream/Deserializer.hpp
@@ -730,7 +742,7 @@ set(SOURCE_FILES_unitTest
         tests/test-Utils.cpp
         )
 
-if(CLP_BUILD_TESTING)
+if(CLP_ENABLE_TESTS)
     add_executable(unitTest
             ${SOURCE_FILES_unitTest}
             ${SOURCE_FILES_clp_s_unitTest}

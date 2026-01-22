@@ -173,14 +173,14 @@ When using AWS DocumentDB or MongoDB Atlas:
 
 ## Configuring CLP to use external databases
 
-After setting up your external databases, configure CLP to use them by editing `etc/clp-config.yml`:
+After setting up your external databases, configure CLP to use them by editing `etc/clp-config.yaml`:
 
 ```yaml
 database:
   host: "<mariadb-hostname-or-ip>"
   port: 3306
   name: "clp-db"
-  # Credentials will be set in etc/credentials.yml
+  # Credentials will be set in etc/credentials.yaml
 
 results_cache:
   host: "<mongodb-hostname-or-ip>"
@@ -188,7 +188,7 @@ results_cache:
   name: "clp-query-results"
 ```
 
-Set the credentials in `etc/credentials.yml`:
+Set the credentials in `etc/credentials.yaml`:
 
 ```yaml
 database:
@@ -205,7 +205,7 @@ initialization jobs (`db-table-creator` and `results-cache-indices-creator`).
 
 [aws-rds]: https://aws.amazon.com/rds/
 [azure-databases]: https://azure.microsoft.com/en-us/products/category/databases
-[docker-compose-orchestration]: ../dev-docs/design-deployment-orchestration.md#docker-compose-orchestration
+[docker-compose-orchestration]: guides-docker-compose-deployment.md
 [mongodb-install]: https://www.mongodb.com/docs/manual/installation/
 [mongodb-security]: https://docs.mongodb.com/manual/security/
-[multi-host-guide]: guides-multi-host.md#starting-clp
+[multi-host-guide]: guides-docker-compose-deployment.md#starting-clp

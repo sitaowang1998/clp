@@ -16,7 +16,7 @@ from clp_py_utils.clp_config import (
     Database,
     ResultsCache,
 )
-from clp_py_utils.sql_adapter import SQL_Adapter
+from clp_py_utils.sql_adapter import SqlAdapter
 from job_orchestration.scheduler.constants import QueryJobStatus, QueryJobType
 from job_orchestration.scheduler.job_config import AggregationConfig, SearchJobConfig
 
@@ -71,7 +71,7 @@ def create_and_monitor_job_in_db(
         if len(tag_list) > 0:
             search_config.tags = tag_list
 
-    sql_adapter = SQL_Adapter(db_config)
+    sql_adapter = SqlAdapter(db_config)
     job_id = submit_query_job(sql_adapter, search_config, QueryJobType.SEARCH_OR_AGGREGATION)
     job_status = wait_for_query_job(sql_adapter, job_id)
 
@@ -288,6 +288,10 @@ def main(argv):
     else:
         logger.setLevel(logging.INFO)
 
+    if parsed_args.count and parsed_args.count_by_time is not None:
+        logger.error("--count and --count-by-time are mutually exclusive.")
+        return -1
+
     if (
         parsed_args.begin_time is not None
         and parsed_args.end_time is not None
@@ -298,7 +302,7 @@ def main(argv):
     # Validate and load config file
     try:
         config_file_path = pathlib.Path(parsed_args.config)
-        clp_config = load_config_file(config_file_path, default_config_file_path, clp_home)
+        clp_config = load_config_file(config_file_path)
         clp_config.validate_logs_dir()
         clp_config.database.load_credentials_from_env()
     except:

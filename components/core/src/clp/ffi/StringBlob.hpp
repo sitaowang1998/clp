@@ -17,6 +17,8 @@ public:
     // Constructors
     StringBlob() = default;
 
+    auto operator==(StringBlob const& other) const -> bool = default;
+
     // Methods
     [[nodiscard]] auto get_num_strings() const -> size_t { return m_offsets.size() - 1; }
 
@@ -55,6 +57,17 @@ public:
         }
         m_offsets.emplace_back(end_offset);
         return std::nullopt;
+    }
+
+    /**
+     * Appends a string to the end of the blob.
+     * @param str
+     */
+    auto append(std::string_view str) -> void {
+        auto const start_offset{m_data.size()};
+        auto const end_offset{start_offset + str.length()};
+        m_data.append(str);
+        m_offsets.emplace_back(end_offset);
     }
 
 private:

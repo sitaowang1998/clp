@@ -60,6 +60,10 @@ impl<Submitter: BufferSubmitter + Send + 'static> ListenerTask<Submitter> {
                             );
                         }
                         Some(object_metadata) => {
+                            tracing::debug!(
+                                object = ? object_metadata,
+                                "Received new object metadata."
+                            );
                             self.buffer.add(object_metadata).await?;
                         }
                     }
@@ -85,7 +89,7 @@ pub struct Listener {
 }
 
 impl Listener {
-    /// Create and spawn a new [`Listener`] backed by a [`ListenerTask`].
+    /// Creates and spawns a new [`Listener`] backed by a [`ListenerTask`].
     ///
     /// This function spawns a [`ListenerTask`]. The spawned task will buffer incoming
     /// [`ObjectMetadata`] values and call the supplied `Submitter` when either the buffer's
@@ -93,7 +97,7 @@ impl Listener {
     ///
     /// # Type parameters
     ///
-    /// - `Submitter`: A type that implements the [`BufferSubmitter`] trait to submit buffered
+    /// * [`Submitter`]: A type that implements the [`BufferSubmitter`] trait to submit buffered
     ///   object metadata.
     ///
     /// # Returns
@@ -112,7 +116,11 @@ impl Listener {
         };
         let cancel_token = CancellationToken::new();
         let child_cancel_token = cancel_token.clone();
-        let handle = tokio::spawn(async move { task.run(child_cancel_token).await });
+        let handle = tokio::spawn(async move {
+            task.run(child_cancel_token).await.inspect_err(|err| {
+                tracing::error!(error = ? err, "Listener task execution failed.");
+            })
+        });
 
         Self {
             sender,

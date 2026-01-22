@@ -18,14 +18,18 @@ template <>
 auto ErrorCategory::message(ErrorCodeEnum error_enum) const -> std::string {
     switch (error_enum) {
         case ErrorCodeEnum::InvalidTimestampPattern:
-            return "Encountered timestamp pattern with invalid syntax.";
+            return "Encountered timestamp pattern with invalid syntax";
         case ErrorCodeEnum::IncompatibleTimestampPattern:
-            return "Timestamp pattern does not match the format of the given timestamp.";
+            return "Timestamp pattern does not match the format of the given timestamp";
         case ErrorCodeEnum::InvalidDate:
-            return "Timestamp was parsed successfully, but did not yield a valid date.";
-        case ErrorCodeEnum::FormatSpecifierNotImplemented:
-            return "Encountered unimplemented format specifier in timestamp pattern.";
+            return "Timestamp was parsed successfully, but did not yield a valid date";
+        case ErrorCodeEnum::InvalidTimezoneOffset:
+            return "Encountered invalid data when expecting a timezone offset";
+        case ErrorCodeEnum::InvalidEscapeSequence:
+            return "Timestamp pattern contains an unsupported escape sequence";
+        case ErrorCodeEnum::InvalidCharacter:
+            return "Timestamp pattern contains an unsupported character";
         default:
-            return "Unknown error code enum.";
+            return "Unknown error code enum";
     }
 }
