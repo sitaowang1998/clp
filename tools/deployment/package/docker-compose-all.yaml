@@ -460,14 +460,6 @@ services:
       "-m", "job_orchestration.scheduler.query.query_scheduler",
       "--config", "/etc/clp-config.yaml"
     ]
-    healthcheck:
-      <<: *healthcheck_defaults
-      test: [
-        "CMD",
-        "bash",
-        "-c",
-        "< /dev/tcp/query_scheduler/7000"
-      ]
 
   query-worker:
     <<: *service_defaults
