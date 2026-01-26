@@ -77,7 +77,7 @@ services:
   query-worker:
     extends:
       file: "docker-compose-all.yaml"
-      service: "query-worker"
+      service: "spider-query-worker"
 
   reducer:
     extends:

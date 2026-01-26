@@ -503,6 +503,38 @@ services:
       "-n", "query-worker"
     ]
 
+  spider-query-worker:
+    <<: *service_defaults
+    hostname: "query_worker"
+    environment:
+      CLP_CONFIG_PATH: "/etc/clp-config.yaml"
+      CLP_HOME: "/opt/clp"
+      CLP_LOGGING_LEVEL: "${CLP_QUERY_WORKER_LOGGING_LEVEL:-INFO}"
+      CLP_LOGS_DIR: "/var/log/query_worker"
+      CLP_WORKER_LOG_PATH: "/var/log/query_worker/worker.log"
+      PYTHONPATH: "/opt/clp/lib/python3/site-packages"
+      SPIDER_LOG_DIR: "/var/log/query_worker"
+    volumes:
+      - *volume_clp_config_readonly
+      - *volume_clp_logs
+      - "${CLP_ARCHIVE_OUTPUT_DIR_HOST:-empty}:/var/data/archives:ro"
+      - "${CLP_AWS_CONFIG_DIR_HOST:-empty}:/opt/clp/.aws:ro"
+      - "${CLP_STAGED_STREAM_OUTPUT_DIR_HOST:-empty}:/var/data/staged-streams"
+      - "${CLP_STREAM_OUTPUT_DIR_HOST:-empty}:/var/data/streams"
+    depends_on:
+      db-table-creator:
+        condition: "service_completed_successfully"
+    command: [
+      "python3", "-u",
+      "-m", "job_orchestration.executor.start-spider-worker",
+      "--host", "query_worker",
+      "--num-workers", "${CLP_QUERY_WORKER_CONCURRENCY:-1}",
+      "--storage-url", "jdbc:mariadb://database:3306/\
+        ${SPIDER_DB_NAME:-spider-db}?\
+        user=${SPIDER_DB_USER:-spider-user}\
+        &password=${SPIDER_DB_PASS:?Please set a value.}",
+    ]
+
   reducer:
     <<: *service_defaults
     hostname: "reducer"
