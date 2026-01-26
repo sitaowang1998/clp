@@ -16,20 +16,27 @@ from __future__ import annotations
 import datetime
 import json
 from logging import getLogger
-from typing import Any, Dict, List
+from typing import Any, TYPE_CHECKING
 
-from spider_py import Int64, Int8
-from spider_py.client import Channel, channel_task, Driver, group
+from spider_py import Int64
+from spider_py.client import Channel, channel_task, Driver, group, Job, TaskGraph
+from spider_py.core import JobStatus
+from spider_py.storage import StorageError
 
-from job_orchestration.executor.query.spider_search_task import search_with_channel
 from job_orchestration.executor.query.spider_reducer_task import reducer_task
-from job_orchestration.scheduler.job_config import SearchJobConfig
-from job_orchestration.utils.spider_utils import utf8_str_to_int8_list
+from job_orchestration.executor.query.spider_search_task import search_with_channel
+from job_orchestration.utils.spider_utils import (
+    int8_list_to_utf8_str,
+    utf8_str_to_int8_list,
+)
+
+if TYPE_CHECKING:
+    from job_orchestration.scheduler.job_config import SearchJobConfig
 
 logger = getLogger(__name__)
 
 
-def build_search_task_graph(num_archives: int):
+def build_search_task_graph(num_archives: int, has_aggregation: bool) -> TaskGraph:
     """
     Build Spider task graph for search with aggregation (reducer).
 
@@ -44,26 +51,28 @@ def build_search_task_graph(num_archives: int):
 
     # Create search task graphs (producers)
     search_task_graphs = [
-        channel_task(search_with_channel, senders={"sender": channel})
-        for _ in range(num_archives)
+        channel_task(search_with_channel, senders={"sender": channel}) for _ in range(num_archives)
     ]
 
-    # Create reducer task graph (consumer)
-    reducer_graph = channel_task(reducer_task, receivers={"receiver": channel})
-
-    # Combine all tasks (no dependencies - channel coordinates data flow)
-    all_graphs = search_task_graphs + [reducer_graph]
+    if has_aggregation:
+        # Create reducer task graph (consumer).
+        reducer_graph = channel_task(reducer_task, receivers={"receiver": channel})
+        # Combine all tasks (no dependencies - channel coordinates data flow).
+        all_graphs = [*search_task_graphs, reducer_graph]
+    else:
+        all_graphs = search_task_graphs
     return group(all_graphs)
 
 
-def prepare_job_inputs(
+def prepare_job_inputs(  # noqa: PLR0913
     job_id: str,
-    archives: List[Dict[str, Any]],
-    task_ids: List[int],
+    archives: list[dict[str, Any]],
+    task_ids: list[int],
     search_config: SearchJobConfig,
-    db_conn_params: Dict[str, Any],
+    db_conn_params: dict[str, Any],
     results_cache_uri: str,
-) -> List[tuple]:
+    has_aggregation: bool,
+) -> list[tuple[Any, ...]]:
     """
     Prepare job inputs for all tasks.
 
@@ -78,40 +87,45 @@ def prepare_job_inputs(
     :param results_cache_uri: MongoDB URI for results cache
     :return: List of input tuples for each task
     """
-    inputs = []
+    inputs: list[tuple[Any, ...]] = []
 
     # Convert common data to TDL format
     job_id_int8 = utf8_str_to_int8_list(job_id)
     job_config_json_int8 = utf8_str_to_int8_list(json.dumps(search_config.model_dump()))
     db_conn_params_json_int8 = utf8_str_to_int8_list(json.dumps(db_conn_params))
-
-    # Prepare search task inputs
-    for archive, task_id in zip(archives, task_ids):
-        archive_id_int8 = utf8_str_to_int8_list(archive["archive_id"])
-
-        # Input tuple: (job_id, task_id, archive_id, job_config_json, db_conn_params_json)
-        # Note: sender is injected by Spider at position after TaskContext
-        inputs.append((
-            job_id_int8,
-            Int64(task_id),
-            archive_id_int8,
-            job_config_json_int8,
-            db_conn_params_json_int8,
-        ))
-
-    # Prepare reducer task input
-    aggregation_config = search_config.aggregation_config
-    aggregation_config_dict = aggregation_config.model_dump() if aggregation_config else {}
-    aggregation_config_json_int8 = utf8_str_to_int8_list(json.dumps(aggregation_config_dict))
     results_cache_uri_int8 = utf8_str_to_int8_list(results_cache_uri)
 
-    # Input tuple: (job_id, aggregation_config_json, results_cache_uri)
-    # Note: receiver is injected by Spider at position after TaskContext
-    inputs.append((
-        job_id_int8,
-        aggregation_config_json_int8,
-        results_cache_uri_int8,
-    ))
+    # Prepare search task inputs
+    for archive, task_id in zip(archives, task_ids, strict=True):
+        archive_id_int8 = utf8_str_to_int8_list(archive["archive_id"])
+
+        # Input tuple: (job_id, task_id, archive_id, job_config_json, db_conn_params_json,
+        # results_cache_uri). Note: sender is injected by Spider after TaskContext.
+        inputs.append(
+            (
+                job_id_int8,
+                Int64(task_id),
+                archive_id_int8,
+                job_config_json_int8,
+                db_conn_params_json_int8,
+                results_cache_uri_int8,
+            )
+        )
+
+    if has_aggregation:
+        # Prepare reducer task input
+        aggregation_config = search_config.aggregation_config
+        aggregation_config_dict = aggregation_config.model_dump() if aggregation_config else {}
+        aggregation_config_json_int8 = utf8_str_to_int8_list(json.dumps(aggregation_config_dict))
+        # Input tuple: (job_id, aggregation_config_json, results_cache_uri)
+        # Note: receiver is injected by Spider at position after TaskContext
+        inputs.append(
+            (
+                job_id_int8,
+                aggregation_config_json_int8,
+                results_cache_uri_int8,
+            )
+        )
 
     return inputs
 
@@ -125,39 +139,45 @@ class SpiderQueryJobHandle:
 
     def __init__(
         self,
-        spider_job,
+        spider_job: Job,
         job_id: str,
         num_search_tasks: int,
+        has_aggregation: bool,
         start_time: datetime.datetime,
-    ):
+    ) -> None:
+        """Create a handle for a Spider query job."""
         self._spider_job = spider_job
         self._job_id = job_id
         self._num_search_tasks = num_search_tasks
+        self._has_aggregation = has_aggregation
         self._start_time = start_time
 
     @property
     def job_id(self) -> str:
+        """Return the CLP job id."""
         return self._job_id
 
     @property
-    def spider_job(self):
+    def spider_job(self) -> Job:
+        """Return the Spider job handle."""
         return self._spider_job
 
     @property
     def start_time(self) -> datetime.datetime:
+        """Return the job start timestamp."""
         return self._start_time
 
     def is_complete(self) -> bool:
         """Check if the Spider job is complete."""
-        from spider_py.core import JobStatus
-
         status = self._spider_job.get_status()
         return status in (JobStatus.Succeeded, JobStatus.Failed, JobStatus.Cancelled)
 
-    def get_search_task_results(self) -> List[Dict[str, Any]]:
-        """Get results from search tasks."""
-        from job_orchestration.utils.spider_utils import int8_list_to_utf8_str
+    def get_status(self) -> JobStatus:
+        """Return the Spider job status."""
+        return self._spider_job.get_status()
 
+    def get_search_task_results(self) -> list[dict[str, Any]]:
+        """Get results from search tasks."""
         outputs = self._spider_job.get_outputs()
         results = []
         for i in range(self._num_search_tasks):
@@ -166,24 +186,22 @@ class SpiderQueryJobHandle:
                 results.append(json.loads(result_json))
         return results
 
-    def get_reducer_result(self) -> Dict[str, Any]:
+    def get_reducer_result(self) -> dict[str, Any] | None:
         """Get result from reducer task."""
-        from job_orchestration.utils.spider_utils import int8_list_to_utf8_str
-
         outputs = self._spider_job.get_outputs()
-        if len(outputs) > self._num_search_tasks:
+        if self._has_aggregation and len(outputs) > self._num_search_tasks:
             result_json = int8_list_to_utf8_str(outputs[self._num_search_tasks])
             return json.loads(result_json)
         return None
 
 
-def dispatch_search_job(
+def dispatch_search_job(  # noqa: PLR0913
     driver: Driver,
     job_id: str,
-    archives: List[Dict[str, Any]],
-    task_ids: List[int],
+    archives: list[dict[str, Any]],
+    task_ids: list[int],
     search_config: SearchJobConfig,
-    db_conn_params: Dict[str, Any],
+    db_conn_params: dict[str, Any],
     results_cache_uri: str,
 ) -> SpiderQueryJobHandle:
     """
@@ -198,10 +216,14 @@ def dispatch_search_job(
     :param results_cache_uri: MongoDB URI for results cache
     :return: SpiderQueryJobHandle for monitoring the job
     """
-    start_time = datetime.datetime.now()
+    start_time = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
+    has_aggregation = search_config.aggregation_config is not None
 
     # Build task graph
-    task_graph = build_search_task_graph(num_archives=len(archives))
+    task_graph = build_search_task_graph(
+        num_archives=len(archives),
+        has_aggregation=has_aggregation,
+    )
 
     # Prepare inputs for all tasks
     job_inputs = prepare_job_inputs(
@@ -211,22 +233,27 @@ def dispatch_search_job(
         search_config=search_config,
         db_conn_params=db_conn_params,
         results_cache_uri=results_cache_uri,
+        has_aggregation=has_aggregation,
     )
 
     logger.info(
-        f"Submitting Spider job {job_id} with {len(archives)} search tasks and reducer"
+        "Submitting Spider job %s with %d search tasks%s",
+        job_id,
+        len(archives),
+        " and reducer" if has_aggregation else "",
     )
 
     # Submit job to Spider
     jobs = driver.submit_jobs([task_graph], [tuple(job_inputs)])
 
-    if not jobs or len(jobs) == 0:
-        raise RuntimeError(f"Failed to submit Spider job {job_id}")
+    if not jobs:
+        raise SpiderJobSubmitError(job_id)
 
     return SpiderQueryJobHandle(
         spider_job=jobs[0],
         job_id=job_id,
         num_search_tasks=len(archives),
+        has_aggregation=has_aggregation,
         start_time=start_time,
     )
 
@@ -236,12 +263,26 @@ def create_spider_driver(storage_url: str) -> Driver:
     return Driver(storage_url)
 
 
+class SpiderJobSubmitError(RuntimeError):
+    """Raised when Spider job submission fails."""
+
+    def __init__(self, job_id: str) -> None:
+        """Create a submission error message."""
+        super().__init__(f"Failed to submit Spider job {job_id}")
+
+
 def cancel_spider_job(job_handle: SpiderQueryJobHandle) -> bool:
     """Cancel a Spider job."""
-    try:
-        job_handle.spider_job.cancel()
-        logger.info(f"Cancelled Spider job {job_handle.job_id}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to cancel Spider job {job_handle.job_id}: {e}")
+    cancel_method = getattr(job_handle.spider_job, "cancel", None)
+    if cancel_method is None:
+        logger.error("Spider job %s does not support cancellation", job_handle.job_id)
         return False
+
+    try:
+        cancel_method()
+    except StorageError:
+        logger.exception("Failed to cancel Spider job %s", job_handle.job_id)
+        return False
+
+    logger.info("Cancelled Spider job %s", job_handle.job_id)
+    return True

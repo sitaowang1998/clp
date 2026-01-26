@@ -81,7 +81,8 @@ CREATE TABLE IF NOT EXISTS `channels`
     `job_id`        BINARY(16)   NOT NULL,
     `type`          VARCHAR(999) NOT NULL,
     `sender_closed` BOOL DEFAULT FALSE,
-    CONSTRAINT `channel_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    CONSTRAINT `channel_job_id` FOREIGN KEY (`job_id`) REFERENCES `jobs` (`id`)
+        ON UPDATE NO ACTION ON DELETE CASCADE,
     INDEX (`job_id`),
     PRIMARY KEY (`id`)
 );
@@ -91,8 +92,10 @@ CREATE TABLE IF NOT EXISTS `channel_producers`
 (
     `channel_id` BINARY(16) NOT NULL,
     `task_id`    BINARY(16) NOT NULL,
-    CONSTRAINT `channel_producer_channel_id` FOREIGN KEY (`channel_id`) REFERENCES `channels` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-    CONSTRAINT `channel_producer_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    CONSTRAINT `channel_producer_channel_id` FOREIGN KEY (`channel_id`)
+        REFERENCES `channels` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    CONSTRAINT `channel_producer_task_id` FOREIGN KEY (`task_id`)
+        REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     INDEX (`task_id`),
     PRIMARY KEY (`channel_id`, `task_id`)
 );
@@ -102,8 +105,10 @@ CREATE TABLE IF NOT EXISTS `channel_consumers`
 (
     `channel_id` BINARY(16) NOT NULL,
     `task_id`    BINARY(16) NOT NULL,
-    CONSTRAINT `channel_consumer_channel_id` FOREIGN KEY (`channel_id`) REFERENCES `channels` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-    CONSTRAINT `channel_consumer_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    CONSTRAINT `channel_consumer_channel_id` FOREIGN KEY (`channel_id`)
+        REFERENCES `channels` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    CONSTRAINT `channel_consumer_task_id` FOREIGN KEY (`task_id`)
+        REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
     INDEX (`task_id`),
     PRIMARY KEY (`channel_id`, `task_id`)
 );
@@ -151,9 +156,12 @@ CREATE TABLE IF NOT EXISTS `channel_items`
     `value`                BLOB(60000),
     `delivered_to_task_id` BINARY(16),
     `creation_time`        TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT `channel_item_channel_id` FOREIGN KEY (`channel_id`) REFERENCES `channels` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-    CONSTRAINT `channel_item_producer_task_id` FOREIGN KEY (`producer_task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-    CONSTRAINT `channel_item_delivered_to_task_id` FOREIGN KEY (`delivered_to_task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+    CONSTRAINT `channel_item_channel_id` FOREIGN KEY (`channel_id`)
+        REFERENCES `channels` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    CONSTRAINT `channel_item_producer_task_id` FOREIGN KEY (`producer_task_id`)
+        REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    CONSTRAINT `channel_item_delivered_to_task_id` FOREIGN KEY (`delivered_to_task_id`)
+        REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
     INDEX (`channel_id`, `creation_time`),
     INDEX (`delivered_to_task_id`),
     PRIMARY KEY (`id`)
@@ -168,9 +176,12 @@ CREATE TABLE IF NOT EXISTS `task_outputs`
     `value`    BLOB(60000),
     `data_id`  BINARY(16),
     `channel_id` BINARY(16),
-    CONSTRAINT `output_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-    CONSTRAINT `output_data_id` FOREIGN KEY (`data_id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION,
-    CONSTRAINT `output_channel_id` FOREIGN KEY (`channel_id`) REFERENCES `channels` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+    CONSTRAINT `output_task_id` FOREIGN KEY (`task_id`)
+        REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    CONSTRAINT `output_data_id` FOREIGN KEY (`data_id`)
+        REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION,
+    CONSTRAINT `output_channel_id` FOREIGN KEY (`channel_id`)
+        REFERENCES `channels` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
     INDEX (`channel_id`),
     PRIMARY KEY (`task_id`, `position`)
 );
@@ -186,10 +197,14 @@ CREATE TABLE IF NOT EXISTS `task_inputs`
     `value`                BLOB(60000),
     `data_id`              BINARY(16),
     `channel_id`           BINARY(16),
-    CONSTRAINT `input_task_id` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
-    CONSTRAINT `input_task_output_match` FOREIGN KEY (`output_task_id`, `output_task_position`) REFERENCES task_outputs (`task_id`, `position`) ON UPDATE NO ACTION ON DELETE SET NULL,
-    CONSTRAINT `input_data_id` FOREIGN KEY (`data_id`) REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION,
-    CONSTRAINT `input_channel_id` FOREIGN KEY (`channel_id`) REFERENCES `channels` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
+    CONSTRAINT `input_task_id` FOREIGN KEY (`task_id`)
+        REFERENCES `tasks` (`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+    CONSTRAINT `input_task_output_match` FOREIGN KEY (`output_task_id`, `output_task_position`)
+        REFERENCES task_outputs (`task_id`, `position`) ON UPDATE NO ACTION ON DELETE SET NULL,
+    CONSTRAINT `input_data_id` FOREIGN KEY (`data_id`)
+        REFERENCES `data` (`id`) ON UPDATE NO ACTION ON DELETE NO ACTION,
+    CONSTRAINT `input_channel_id` FOREIGN KEY (`channel_id`)
+        REFERENCES `channels` (`id`) ON UPDATE NO ACTION ON DELETE SET NULL,
     INDEX (`channel_id`),
     PRIMARY KEY (`task_id`, `position`)
 );

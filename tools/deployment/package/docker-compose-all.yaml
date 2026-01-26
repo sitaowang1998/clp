@@ -442,6 +442,8 @@ services:
       PYTHONPATH: "/opt/clp/lib/python3/site-packages"
       RESULT_BACKEND: "redis://default:${CLP_REDIS_PASS:?Please set a value.}@redis:6379\
         /${CLP_REDIS_BACKEND_DB_QUERY:-0}"
+      SPIDER_DB_PASS: "${SPIDER_DB_PASS:?Please set a value.}"
+      SPIDER_DB_USER: "${SPIDER_DB_USER:-spider-user}"
     volumes:
       - *volume_clp_config_readonly
       - *volume_clp_logs

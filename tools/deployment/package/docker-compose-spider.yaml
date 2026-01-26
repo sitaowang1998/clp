@@ -70,6 +70,9 @@ services:
     extends:
       file: "docker-compose-all.yaml"
       service: "query-scheduler"
+    environment:
+      SPIDER_DB_PASS: "${SPIDER_DB_PASS:?Please set a value.}"
+      SPIDER_DB_USER: "${SPIDER_DB_USER:?Please set a value.}"
 
   query-worker:
     extends:

@@ -430,6 +430,7 @@ class QueryScheduler(BaseModel):
 
     host: DomainStr = "localhost"
     port: Port = DEFAULT_PORT
+    type: OrchestrationTypeStr = OrchestrationType.CELERY
     jobs_poll_delay: PositiveFloat = 0.1  # seconds
     num_archives_to_search_per_sub_job: PositiveInt = 16
     logging_level: LoggingLevel = "INFO"
@@ -1002,7 +1003,10 @@ class ClpConfig(BaseModel):
         return self.logs_directory / CLP_SHARED_CONFIG_FILENAME
 
     def get_deployment_type(self) -> DeploymentType:
-        if OrchestrationType.SPIDER == self.compression_scheduler.type:
+        if (
+            OrchestrationType.SPIDER == self.compression_scheduler.type
+            or OrchestrationType.SPIDER == self.query_scheduler.type
+        ):
             if QueryEngine.PRESTO == self.package.query_engine:
                 return DeploymentType.SPIDER_BASE
             return DeploymentType.SPIDER_FULL
@@ -1040,8 +1044,10 @@ class ClpConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_spider_config(self):
-        orchestration_type = self.compression_scheduler.type
-        if orchestration_type != OrchestrationType.SPIDER:
+        if (
+            self.compression_scheduler.type != OrchestrationType.SPIDER
+            and self.query_scheduler.type != OrchestrationType.SPIDER
+        ):
             return self
         if self.spider_scheduler is None:
             raise ValueError(
@@ -1053,8 +1059,10 @@ class ClpConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_celery_config(self):
-        orchestration_type = self.compression_scheduler.type
-        if orchestration_type != OrchestrationType.CELERY:
+        if (
+            self.compression_scheduler.type != OrchestrationType.CELERY
+            and self.query_scheduler.type != OrchestrationType.CELERY
+        ):
             return self
         if self.queue is None:
             raise ValueError("`queue` must be configured when using Celery orchestration.")

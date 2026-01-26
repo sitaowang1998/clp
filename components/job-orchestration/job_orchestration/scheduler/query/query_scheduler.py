@@ -32,6 +32,8 @@ import msgpack
 import pymongo
 from clp_py_utils.clp_config import (
     ClpConfig,
+    ClpDbUserType,
+    OrchestrationType,
     QUERY_JOBS_TABLE_NAME,
     QUERY_SCHEDULER_COMPONENT_NAME,
     QUERY_TASKS_TABLE_NAME,
@@ -63,6 +65,12 @@ from job_orchestration.scheduler.job_config import (
     ExtractJsonJobConfig,
     QueryJobConfig,
     SearchJobConfig,
+)
+from job_orchestration.scheduler.query.spider_query_scheduler import (
+    SpiderQueryJobHandle,
+    cancel_spider_job,
+    create_spider_driver,
+    dispatch_search_job as dispatch_spider_search_job,
 )
 from job_orchestration.scheduler.query.reducer_handler import (
     handle_reducer_connection,
@@ -221,11 +229,15 @@ def cancel_job_except_reducer(job: SearchJob):
     :param job:
     """
     if InternalJobState.RUNNING == job.state:
-        job.current_sub_job_async_task_result.revoke(terminate=True)
-        try:
-            job.current_sub_job_async_task_result.get()
-        except Exception:
-            pass
+        async_result = job.current_sub_job_async_task_result
+        if isinstance(async_result, SpiderQueryJobHandle):
+            cancel_spider_job(async_result)
+        else:
+            async_result.revoke(terminate=True)
+            try:
+                async_result.get()
+            except Exception:
+                pass
     elif InternalJobState.WAITING_FOR_REDUCER == job.state:
         job.reducer_acquisition_task.cancel()
 
@@ -509,6 +521,16 @@ def archive_exists(
     return False
 
 
+def _normalize_archive_ids(archives: list[Any]) -> list[str]:
+    archive_ids: list[str] = []
+    for archive in archives:
+        if isinstance(archive, dict):
+            archive_ids.append(archive["archive_id"])
+        else:
+            archive_ids.append(archive)
+    return archive_ids
+
+
 def get_task_group_for_job(
     archive_ids: list[str],
     task_ids: list[int],
@@ -550,21 +572,44 @@ def get_task_group_for_job(
 def dispatch_query_job(
     db_conn,
     job: QueryJob,
-    archive_ids: list[str],
+    target_archives: list[Any],
     clp_metadata_db_conn_params: dict[str, any],
     results_cache_uri: str,
+    orchestration_type: OrchestrationType,
+    spider_driver,
 ) -> None:
     global active_jobs
+    archive_ids = _normalize_archive_ids(target_archives)
     task_ids = insert_query_tasks_into_db(db_conn, job.id, archive_ids)
 
-    task_group = get_task_group_for_job(
-        archive_ids,
-        task_ids,
-        job,
-        clp_metadata_db_conn_params,
-        results_cache_uri,
-    )
-    job.current_sub_job_async_task_result = task_group.apply_async()
+    if (
+        QueryJobType.SEARCH_OR_AGGREGATION == job.get_type()
+        and orchestration_type == OrchestrationType.SPIDER
+    ):
+        if spider_driver is None:
+            raise RuntimeError("Spider driver is not initialized.")
+        search_config: SearchJobConfig = job.get_config()
+        archives = target_archives
+        if not archives or not isinstance(archives[0], dict):
+            archives = [{"archive_id": archive_id} for archive_id in archive_ids]
+        job.current_sub_job_async_task_result = dispatch_spider_search_job(
+            driver=spider_driver,
+            job_id=job.id,
+            archives=archives,
+            task_ids=task_ids,
+            search_config=search_config,
+            db_conn_params=clp_metadata_db_conn_params,
+            results_cache_uri=results_cache_uri,
+        )
+    else:
+        task_group = get_task_group_for_job(
+            archive_ids,
+            task_ids,
+            job,
+            clp_metadata_db_conn_params,
+            results_cache_uri,
+        )
+        job.current_sub_job_async_task_result = task_group.apply_async()
     job.state = InternalJobState.RUNNING
 
 
@@ -618,13 +663,21 @@ async def acquire_reducer_for_job(job: SearchJob):
 def dispatch_job_and_update_db(
     db_conn,
     new_job: QueryJob,
-    target_archives: list[str],
+    target_archives: list[Any],
     clp_metadata_db_conn_params: dict[str, any],
     results_cache_uri: str,
     num_tasks: int,
+    orchestration_type: OrchestrationType,
+    spider_driver,
 ) -> None:
     dispatch_query_job(
-        db_conn, new_job, target_archives, clp_metadata_db_conn_params, results_cache_uri
+        db_conn,
+        new_job,
+        target_archives,
+        clp_metadata_db_conn_params,
+        results_cache_uri,
+        orchestration_type,
+        spider_driver,
     )
     start_time = datetime.datetime.now()
     new_job.start_time = start_time
@@ -647,6 +700,8 @@ def handle_pending_query_jobs(
     num_archives_to_search_per_sub_job: int,
     existing_datasets: set[str],
     archive_retention_period: int | None,
+    orchestration_type: OrchestrationType,
+    spider_driver,
 ) -> list[asyncio.Task]:
     global active_jobs
 
@@ -727,11 +782,14 @@ def handle_pending_query_jobs(
 
                 if search_config.aggregation_config is not None:
                     new_search_job.search_config.aggregation_config.job_id = int(job_id)
-                    new_search_job.state = InternalJobState.WAITING_FOR_REDUCER
-                    new_search_job.reducer_acquisition_task = asyncio.create_task(
-                        acquire_reducer_for_job(new_search_job)
-                    )
-                    reducer_acquisition_tasks.append(new_search_job.reducer_acquisition_task)
+                    if orchestration_type == OrchestrationType.SPIDER:
+                        pending_search_jobs.append(new_search_job)
+                    else:
+                        new_search_job.state = InternalJobState.WAITING_FOR_REDUCER
+                        new_search_job.reducer_acquisition_task = asyncio.create_task(
+                            acquire_reducer_for_job(new_search_job)
+                        )
+                        reducer_acquisition_tasks.append(new_search_job.reducer_acquisition_task)
                 else:
                     pending_search_jobs.append(new_search_job)
                 active_jobs[job_id] = new_search_job
@@ -822,6 +880,8 @@ def handle_pending_query_jobs(
                     clp_metadata_db_conn_params,
                     results_cache_uri,
                     1,
+                    orchestration_type,
+                    spider_driver,
                 )
 
                 job_handle.mark_job_as_waiting()
@@ -851,24 +911,35 @@ def handle_pending_query_jobs(
                 archives_for_search = job.remaining_archives_for_search
                 job.remaining_archives_for_search = []
 
-            archive_ids_for_search = [archive["archive_id"] for archive in archives_for_search]
-
             dispatch_job_and_update_db(
                 db_conn,
                 job,
-                archive_ids_for_search,
+                archives_for_search,
                 clp_metadata_db_conn_params,
                 results_cache_uri,
                 job.num_archives_to_search,
+                orchestration_type,
+                spider_driver,
             )
             logger.info(
-                f"Dispatched job {job_id} with {len(archive_ids_for_search)} archives to search."
+                f"Dispatched job {job_id} with {len(archives_for_search)} archives to search."
             )
 
     return reducer_acquisition_tasks
 
 
 def try_getting_task_result(async_task_result):
+    if async_task_result is None:
+        return None
+    if isinstance(async_task_result, SpiderQueryJobHandle):
+        from spider_py.core import JobStatus
+
+        if not async_task_result.is_complete():
+            return None
+        status = async_task_result.get_status()
+        if status != JobStatus.Succeeded:
+            raise RuntimeError(f"Spider job {async_task_result.job_id} status: {status}")
+        return async_task_result.get_search_task_results()
     if not async_task_result.ready():
         return None
     return async_task_result.get()
@@ -905,6 +976,7 @@ async def handle_finished_search_job(
     global active_jobs
 
     job_id = job.id
+    has_aggregation = job.search_config.aggregation_config is not None
     is_reducer_job = job.reducer_handler_msg_queues is not None
     new_job_status = QueryJobStatus.RUNNING
     for task_result_obj in task_results:
@@ -930,7 +1002,7 @@ async def handle_finished_search_job(
         if len(job.remaining_archives_for_search) == 0:
             new_job_status = QueryJobStatus.SUCCEEDED
         # Check if we've reached max results
-        elif False == is_reducer_job and max_num_results > 0:
+        elif False == has_aggregation and max_num_results > 0:
             if found_max_num_latest_results(
                 results_cache_uri,
                 job_id,
@@ -1112,6 +1184,8 @@ async def handle_jobs(
     jobs_poll_delay: float,
     num_archives_to_search_per_sub_job: int,
     archive_retention_period: int | None,
+    orchestration_type: OrchestrationType,
+    spider_driver,
 ) -> None:
     handle_updating_task = asyncio.create_task(
         handle_job_updates(db_conn_pool, results_cache_uri, jobs_poll_delay)
@@ -1128,6 +1202,8 @@ async def handle_jobs(
             num_archives_to_search_per_sub_job,
             existing_datasets,
             archive_retention_period,
+            orchestration_type,
+            spider_driver,
         )
         if 0 == len(reducer_acquisition_tasks):
             tasks.append(asyncio.create_task(asyncio.sleep(jobs_poll_delay)))
@@ -1167,6 +1243,8 @@ async def main(argv: list[str]) -> int:
     try:
         clp_config = ClpConfig.model_validate(read_yaml_config_file(config_path))
         clp_config.database.load_credentials_from_env()
+        if clp_config.query_scheduler.type == OrchestrationType.SPIDER:
+            clp_config.database.load_credentials_from_env(user_type=ClpDbUserType.SPIDER)
     except (ValidationError, ValueError) as err:
         logger.error(err)
         return -1
@@ -1174,7 +1252,16 @@ async def main(argv: list[str]) -> int:
         logger.exception(f"Failed to initialize {QUERY_SCHEDULER_COMPONENT_NAME}.")
         return -1
 
-    reducer_connection_queue = asyncio.Queue(32)
+    spider_driver = None
+    if clp_config.query_scheduler.type == OrchestrationType.SPIDER:
+        spider_driver = create_spider_driver(
+            clp_config.database.get_container_url(ClpDbUserType.SPIDER)
+        )
+        reducer_connection_queue = None
+        logger.info("Query scheduler using Spider.")
+    else:
+        reducer_connection_queue = asyncio.Queue(32)
+        logger.info("Query scheduler using Celery.")
 
     sql_adapter = SqlAdapter(clp_config.database)
 
@@ -1188,13 +1275,15 @@ async def main(argv: list[str]) -> int:
 
     logger.debug(f"Job polling interval {clp_config.query_scheduler.jobs_poll_delay} seconds.")
     try:
-        reducer_handler = await asyncio.start_server(
-            lambda reader, writer: handle_reducer_connection(
-                reader, writer, reducer_connection_queue
-            ),
-            clp_config.query_scheduler.host,
-            clp_config.query_scheduler.port,
-        )
+        reducer_handler = None
+        if clp_config.query_scheduler.type == OrchestrationType.CELERY:
+            reducer_handler = await asyncio.start_server(
+                lambda reader, writer: handle_reducer_connection(
+                    reader, writer, reducer_connection_queue
+                ),
+                clp_config.query_scheduler.host,
+                clp_config.query_scheduler.port,
+            )
         db_conn_pool = sql_adapter.create_connection_pool(
             logger=logger, pool_size=2, disable_localhost_socket_connection=True
         )
@@ -1222,13 +1311,16 @@ async def main(argv: list[str]) -> int:
                 jobs_poll_delay=clp_config.query_scheduler.jobs_poll_delay,
                 num_archives_to_search_per_sub_job=batch_size,
                 archive_retention_period=clp_config.archive_output.retention_period,
+                orchestration_type=clp_config.query_scheduler.type,
+                spider_driver=spider_driver,
             )
         )
-        reducer_handler = asyncio.create_task(reducer_handler.serve_forever())
-        done, pending = await asyncio.wait(
-            [job_handler, reducer_handler], return_when=asyncio.FIRST_COMPLETED
-        )
-        if reducer_handler in done:
+        tasks = [job_handler]
+        if reducer_handler is not None:
+            reducer_handler = asyncio.create_task(reducer_handler.serve_forever())
+            tasks.append(reducer_handler)
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        if reducer_handler is not None and reducer_handler in done:
             logger.error("reducer_handler completed unexpectedly.")
             try:
                 reducer_handler.result()

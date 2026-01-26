@@ -192,7 +192,10 @@ class BaseController(ABC):
             "CLP_DB_NAME": self._clp_config.database.names[ClpDbNameType.CLP],
             "CLP_DB_PORT": str(self._clp_config.database.port),
         }
-        if self._clp_config.compression_scheduler.type == OrchestrationType.SPIDER:
+        if (
+            self._clp_config.compression_scheduler.type == OrchestrationType.SPIDER
+            or self._clp_config.query_scheduler.type == OrchestrationType.SPIDER
+        ):
             env_vars["SPIDER_DB_NAME"] = self._clp_config.database.names[ClpDbNameType.SPIDER]
 
         # Credentials
@@ -362,7 +365,10 @@ class BaseController(ABC):
         :return: Dictionary of environment variables necessary to launch the component.
         """
         component_name = SPIDER_SCHEDULER_COMPONENT_NAME
-        if self._clp_config.compression_scheduler.type != OrchestrationType.SPIDER:
+        if (
+            self._clp_config.compression_scheduler.type != OrchestrationType.SPIDER
+            and self._clp_config.query_scheduler.type != OrchestrationType.SPIDER
+        ):
             logger.info(
                 "%s is not configured, skipping environment setup...",
                 component_name,

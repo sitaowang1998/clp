@@ -242,6 +242,8 @@ credentials:
     password: "pass"
     root_username: "root"
     root_password: "root-pass"
+    spider_username: "spider-user"
+    spider_password: "pass"
 
   queue:
     username: "clp-user"
