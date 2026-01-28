@@ -540,3 +540,197 @@ def _make_failure_result(
     )
 
     return utf8_str_to_int8_list(json.dumps(result.model_dump()))
+
+
+def search_without_channel(  # noqa: PLR0913
+    _: TaskContext,
+    job_id: list[Int8],
+    task_id: Int64,
+    archive_id: list[Int8],
+    job_config_json: list[Int8],
+    clp_metadata_db_conn_params_json: list[Int8],
+    results_cache_uri: list[Int8],
+) -> list[Int8]:
+    """
+    Spider search task WITHOUT channel (for non-aggregation search).
+
+    This task searches an archive and writes results directly via clp binary
+    (results-cache, network, or file output modes).
+
+    :param _: Spider task context (unused)
+    :param job_id: Job identifier as UTF-8 encoded Int8 list
+    :param task_id: Task identifier
+    :param archive_id: Archive to search as UTF-8 encoded Int8 list
+    :param job_config_json: Search job config as JSON string (Int8 list)
+    :param clp_metadata_db_conn_params_json: DB connection params as JSON string (Int8 list)
+    :param results_cache_uri: Results cache URI as UTF-8 encoded Int8 list
+    :return: QueryTaskResult as JSON string (Int8 list)
+    """
+    task_name = "search_without_channel"
+
+    # Decode inputs
+    job_id_str = int8_list_to_utf8_str(job_id)
+    task_id_int = int(task_id)
+    archive_id_str = int8_list_to_utf8_str(archive_id)
+    job_config_dict = json.loads(int8_list_to_utf8_str(job_config_json))
+    db_conn_params = json.loads(int8_list_to_utf8_str(clp_metadata_db_conn_params_json))
+    results_cache_uri_str = int8_list_to_utf8_str(results_cache_uri)
+
+    # Setup logging
+    clp_logging_level = os.getenv("CLP_LOGGING_LEVEL")
+    set_logging_level(logger, clp_logging_level)
+    _ensure_task_log_handler()
+
+    start_time = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
+    logger.info(
+        "Started %s task %d for job %s at %s",
+        task_name,
+        task_id_int,
+        job_id_str,
+        start_time.isoformat(),
+    )
+    sql_adapter = SqlAdapter(Database.model_validate(db_conn_params))
+
+    # Load worker configuration
+    clp_config_path = Path(os.getenv("CLP_CONFIG_PATH"))
+    worker_config = load_worker_config(clp_config_path, logger)
+    if worker_config is None:
+        return _make_failure_result(sql_adapter, task_id_int, start_time)
+
+    search_config = SearchJobConfig.model_validate(job_config_dict)
+
+    # Build search command
+    clp_home = Path(os.getenv("CLP_HOME"))
+
+    task_command, core_clp_env_vars, output_mode = _make_command_and_env_vars(
+        clp_home=clp_home,
+        worker_config=worker_config,
+        archive_id=archive_id_str,
+        search_config=search_config,
+        results_cache_uri=results_cache_uri_str,
+        results_collection=job_id_str,
+    )
+    if not task_command or output_mode is None:
+        logger.error("Error creating %s command", task_name)
+        return _make_failure_result(sql_adapter, task_id_int, start_time)
+
+    # Run search (no channel streaming)
+    result = _run_search_without_channel(
+        sql_adapter=sql_adapter,
+        task_command=task_command,
+        env_vars=core_clp_env_vars,
+        job_id=job_id_str,
+        task_id=task_id_int,
+        start_time=start_time,
+    )
+
+    storage_config = worker_config.stream_output.storage
+    if (
+        StorageType.S3 == storage_config.type
+        and search_config.write_to_file
+        and QueryTaskStatus.SUCCEEDED == result.status
+    ):
+        s3_config = storage_config.s3_config
+        dest_path = f"{job_id_str}/{archive_id_str}"
+        src_file = Path(worker_config.stream_output.get_directory()) / job_id_str / archive_id_str
+
+        logger.info("Uploading query results %s to S3...", dest_path)
+        try:
+            s3_put(s3_config, src_file, dest_path)
+            logger.info("Finished uploading query results %s to S3.", dest_path)
+        except (BotoCoreError, ClientError, ValueError):
+            logger.exception("Failed to upload query results %s to S3.", dest_path)
+            result.status = QueryTaskStatus.FAILED
+            result.error_log_path = str(os.getenv("CLP_WORKER_LOG_PATH"))
+
+        src_file.unlink()
+
+    end_time = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
+    logger.info(
+        "Finished %s task %d for job %s at %s status=%s duration=%.2fs",
+        task_name,
+        task_id_int,
+        job_id_str,
+        end_time.isoformat(),
+        result.status,
+        result.duration,
+    )
+    return utf8_str_to_int8_list(json.dumps(result.model_dump()))
+
+
+def _run_search_without_channel(  # noqa: PLR0913
+    sql_adapter: SqlAdapter,
+    task_command: list[str],
+    env_vars: dict[str, str] | None,
+    job_id: str,
+    task_id: int,
+    start_time: datetime.datetime,
+) -> QueryTaskResult:
+    """Run search subprocess without channel streaming."""
+    task_name = "search_without_channel"
+    clp_logs_dir = Path(os.getenv("CLP_LOGS_DIR"))
+    log_path = get_task_log_file_path(clp_logs_dir, job_id, task_id)
+    with log_path.open("w") as log_file:
+        task_status = QueryTaskStatus.RUNNING
+        update_query_task_metadata(
+            sql_adapter, task_id, {"status": task_status, "start_time": start_time}
+        )
+
+        logger.info("Running: %s", " ".join(task_command))
+
+        task_proc = subprocess.Popen(
+            task_command,
+            preexec_fn=os.setpgrp,  # noqa: PLW1509
+            close_fds=True,
+            stdout=log_file,
+            stderr=log_file,
+            env=env_vars,
+        )
+
+        def sigterm_handler(_signo: int, _stack_frame: object) -> None:
+            logger.debug("Entered sigterm handler")
+            if task_proc.poll() is None:
+                logger.debug("Trying to kill %s process", task_name)
+                os.killpg(os.getpgid(task_proc.pid), signal.SIGTERM)
+                os.waitpid(task_proc.pid, 0)
+                logger.info("Cancelling %s task.", task_name)
+            sys.exit(_signo + 128)
+
+        signal.signal(signal.SIGTERM, sigterm_handler)
+
+        logger.info("Waiting for %s to finish", task_name)
+        task_proc.wait()
+        return_code = task_proc.returncode
+
+        if 0 != return_code:
+            task_status = QueryTaskStatus.FAILED
+            logger.error(
+                "%s task %d failed for job %s - return_code=%d",
+                task_name,
+                task_id,
+                job_id,
+                return_code,
+            )
+        else:
+            task_status = QueryTaskStatus.SUCCEEDED
+            logger.info("%s task %d completed for job %s", task_name, task_id, job_id)
+
+        end_time = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
+        duration = (end_time - start_time).total_seconds()
+
+        update_query_task_metadata(
+            sql_adapter,
+            task_id,
+            {"status": task_status, "start_time": start_time, "duration": duration},
+        )
+
+        result = QueryTaskResult(
+            status=task_status,
+            task_id=task_id,
+            duration=duration,
+        )
+
+        if task_status == QueryTaskStatus.FAILED:
+            result.error_log_path = str(log_path)
+
+        return result

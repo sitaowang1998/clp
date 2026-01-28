@@ -24,7 +24,10 @@ from spider_py.core import JobStatus
 from spider_py.storage import StorageError
 
 from job_orchestration.executor.query.spider_reducer_task import reducer_task
-from job_orchestration.executor.query.spider_search_task import search_with_channel
+from job_orchestration.executor.query.spider_search_task import (
+    search_with_channel,
+    search_without_channel,
+)
 from job_orchestration.utils.spider_utils import (
     int8_list_to_utf8_str,
     utf8_str_to_int8_list,
@@ -38,30 +41,34 @@ logger = getLogger(__name__)
 
 def build_search_task_graph(num_archives: int, has_aggregation: bool) -> TaskGraph:
     """
-    Build Spider task graph for search with aggregation (reducer).
+    Build Spider task graph for search.
 
-    Creates a channel connecting all search tasks (producers) to a single
-    reducer task (consumer). All tasks are siblings - no dependencies.
+    When aggregation is enabled, creates a channel connecting all search tasks
+    (producers) to a single reducer task (consumer).
+    When aggregation is disabled, creates regular tasks without channel overhead.
 
     :param num_archives: Number of archives to search (determines number of search tasks)
-    :return: TaskGraph with channel bindings
+    :param has_aggregation: Whether aggregation (reducer) is enabled
+    :return: TaskGraph with appropriate task configuration
     """
-    # Create channel for search -> reducer communication
-    channel = Channel[bytes]()
-
-    # Create search task graphs (producers)
-    search_task_graphs = [
-        channel_task(search_with_channel, senders={"sender": channel}) for _ in range(num_archives)
-    ]
-
     if has_aggregation:
-        # Create reducer task graph (consumer).
+        # Create channel for search -> reducer communication
+        channel = Channel[bytes]()
+
+        # Create search task graphs (producers) with channel
+        search_task_graphs = [
+            channel_task(search_with_channel, senders={"sender": channel})
+            for _ in range(num_archives)
+        ]
+
+        # Create reducer task graph (consumer)
         reducer_graph = channel_task(reducer_task, receivers={"receiver": channel})
-        # Combine all tasks (no dependencies - channel coordinates data flow).
-        all_graphs = [*search_task_graphs, reducer_graph]
+
+        # Combine all tasks (no dependencies - channel coordinates data flow)
+        return group([*search_task_graphs, reducer_graph])
     else:
-        all_graphs = search_task_graphs
-    return group(all_graphs)
+        # No aggregation - use regular tasks without channel overhead
+        return group([search_without_channel] * num_archives)
 
 
 def prepare_job_inputs(  # noqa: PLR0913
