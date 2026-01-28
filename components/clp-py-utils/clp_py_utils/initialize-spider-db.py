@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS tasks
 (
     `id`          BINARY(16)                                                        NOT NULL,
     `job_id`      BINARY(16)                                                        NOT NULL,
-    `func_name`   VARCHAR(64)                                                       NOT NULL,
+    `func_name`   VARCHAR(255)                                                      NOT NULL,
     `language`    ENUM('cpp', 'python')                                             NOT NULL,
     `state`       ENUM ('pending', 'ready', 'running', 'success', 'cancel', 'fail') NOT NULL,
     `timeout`     FLOAT,
@@ -192,6 +192,7 @@ CREATE TABLE IF NOT EXISTS `task_inputs`
     `task_id`              BINARY(16)   NOT NULL,
     `position`             INT UNSIGNED NOT NULL,
     `type`                 VARCHAR(999)  NOT NULL,
+    `input_kind`           ENUM('value', 'data', 'channel_consumer', 'channel_producer') NOT NULL,
     `output_task_id`       BINARY(16),
     `output_task_position` INT UNSIGNED,
     `value`                BLOB(60000),

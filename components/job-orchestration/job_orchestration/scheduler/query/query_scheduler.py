@@ -164,9 +164,7 @@ class IrExtractionHandle(StreamExtractionHandle):
         active_file_split_ir_extractions[file_split_id].append(self._job_id)
 
     def create_stream_extraction_job(self) -> QueryJob:
-        logger.info(
-            f"Creating IR extraction job {self._job_id} for file_split: {self.__file_split_id}"
-        )
+        logger.info("Creating IR extraction job.")
         return ExtractIrJob(
             id=self._job_id,
             extract_ir_config=self.__job_config,
@@ -207,7 +205,7 @@ class JsonExtractionHandle(StreamExtractionHandle):
         active_archive_json_extractions[archive_id].append(self._job_id)
 
     def create_stream_extraction_job(self) -> QueryJob:
-        logger.info(f"Creating json extraction job {self._job_id} on archive: {self._archive_id}")
+        logger.info("Creating JSON extraction job.")
         return ExtractJsonJob(
             id=self._job_id,
             extract_json_config=self.__job_config,
@@ -389,9 +387,9 @@ async def handle_cancelling_search_jobs(db_conn_pool) -> None:
                 QueryJobStatus.CANCELLING,
                 **set_job_or_task_status_kwargs,
             ):
-                logger.info(f"Cancelled job {job_id}.")
+                logger.info("Cancelled job.")
             else:
-                logger.error(f"Failed to cancel job {job_id}.")
+                logger.error("Failed to cancel job.")
 
 
 def insert_query_tasks_into_db(db_conn, job_id, archive_ids: list[str]) -> list[int]:
@@ -461,12 +459,10 @@ def get_archive_and_file_split_ids_for_ir_extraction(
 
     results = get_archive_and_file_split_ids(db_conn, table_prefix, orig_file_id, msg_ix)
     if len(results) == 0:
-        logger.error(f"No matching file splits for orig_file_id={orig_file_id}, msg_ix={msg_ix}")
+        logger.error("No matching file splits for extraction request.")
         return None, None
     if len(results) > 1:
-        logger.error(f"Multiple file splits found for orig_file_id={orig_file_id}, msg_ix={msg_ix}")
-        for result in results:
-            logger.error(f"{result['archive_id']}:{result['id']}")
+        logger.error("Multiple file splits found for extraction request.")
         return None, None
 
     return results[0]["archive_id"], results[0]["file_split_id"]
@@ -565,7 +561,7 @@ def get_task_group_for_job(
             for i in range(len(archive_ids))
         )
     error_msg = f"Unexpected job type: {job_type}"
-    logger.error(error_msg)
+    logger.error("Unexpected job type.")
     raise NotImplementedError(error_msg)
 
 
@@ -657,7 +653,7 @@ async def acquire_reducer_for_job(job: SearchJob):
     job.state = InternalJobState.WAITING_FOR_DISPATCH
     job.reducer_acquisition_task = None
 
-    logger.info(f"Got reducer for job {job.id} at {reducer_host}:{reducer_port}")
+    logger.info("Reducer assigned for job.")
 
 
 def dispatch_job_and_update_db(
@@ -729,7 +725,7 @@ def handle_pending_query_jobs(
                 # NOTE: This assumes we never delete a dataset.
                 existing_datasets.update(fetch_existing_datasets(db_cursor, table_prefix))
                 if dataset not in existing_datasets:
-                    logger.error(f"Dataset `{dataset}` doesn't exist.")
+                    logger.error("Dataset does not exist.")
                     if not set_job_or_task_status(
                         db_conn,
                         QUERY_JOBS_TABLE_NAME,
@@ -739,7 +735,7 @@ def handle_pending_query_jobs(
                         start_time=datetime.datetime.now(),
                         duration=0,
                     ):
-                        logger.error(f"Failed to set job {job_id} as failed.")
+                        logger.error("Failed to set job as failed.")
                     continue
 
             if QueryJobType.SEARCH_OR_AGGREGATION == job_type:
@@ -768,7 +764,7 @@ def handle_pending_query_jobs(
                         num_tasks=0,
                         duration=0,
                     ):
-                        logger.info(f"No matching archives, skipping job {job_id}.")
+                        logger.info("No matching archives; skipping job.")
                     continue
 
                 new_search_job = SearchJob(
@@ -813,7 +809,7 @@ def handle_pending_query_jobs(
                         num_tasks=0,
                         duration=0,
                     ):
-                        logger.error(f"Failed to set job {job_id} as failed")
+                        logger.error("Failed to set job as failed.")
                     continue
 
                 # NOTE: The following two if blocks for `is_stream_extraction_active` and
@@ -836,10 +832,7 @@ def handle_pending_query_jobs(
                 # to the list of jobs waiting for it.
                 if job_handle.is_stream_extraction_active():
                     job_handle.mark_job_as_waiting()
-                    logger.info(
-                        f"Stream {job_handle.get_stream_id()} is already being extracted,"
-                        f" so mark job {job_id} as running."
-                    )
+                    logger.info("Stream is already being extracted; marking job as running.")
                     if not set_job_or_task_status(
                         db_conn,
                         QUERY_JOBS_TABLE_NAME,
@@ -849,15 +842,12 @@ def handle_pending_query_jobs(
                         start_time=datetime.datetime.now(),
                         num_tasks=0,
                     ):
-                        logger.error(f"Failed to set job {job_id} as running")
+                        logger.error("Failed to set job as running.")
                     continue
 
                 # Check if a required stream file has already been extracted
                 if job_handle.is_stream_extracted(results_cache_uri, stream_collection_name):
-                    logger.info(
-                        f"Stream {job_handle.get_stream_id()} already extracted,"
-                        f" so mark job {job_id} as succeeded."
-                    )
+                    logger.info("Stream already extracted; marking job as succeeded.")
                     if not set_job_or_task_status(
                         db_conn,
                         QUERY_JOBS_TABLE_NAME,
@@ -868,7 +858,7 @@ def handle_pending_query_jobs(
                         num_tasks=0,
                         duration=0,
                     ):
-                        logger.error(f"Failed to set job {job_id} as succeeded")
+                        logger.error("Failed to set job as succeeded.")
                     continue
 
                 new_stream_extraction_job = job_handle.create_stream_extraction_job()
@@ -886,13 +876,13 @@ def handle_pending_query_jobs(
 
                 job_handle.mark_job_as_waiting()
                 active_jobs[job_id] = new_stream_extraction_job
-                logger.info(f"Dispatched stream extraction job {job_id} for archive: {archive_id}")
+                logger.info("Dispatched stream extraction job.")
 
             else:
                 # NOTE: We're skipping the job for this iteration, but its status will remain
                 # unchanged. So this log will print again in the next iteration unless the user
                 # cancels the job.
-                logger.error(f"Unexpected job type: {job_type}, skipping job {job_id}")
+                logger.error("Unexpected job type; skipping job.")
                 continue
 
         for job in pending_search_jobs:
@@ -921,9 +911,7 @@ def handle_pending_query_jobs(
                 orchestration_type,
                 spider_driver,
             )
-            logger.info(
-                f"Dispatched job {job_id} with {len(archives_for_search)} archives to search."
-            )
+            logger.info("Dispatched search job.")
 
     return reducer_acquisition_tasks
 
@@ -979,22 +967,16 @@ async def handle_finished_search_job(
     has_aggregation = job.search_config.aggregation_config is not None
     is_reducer_job = job.reducer_handler_msg_queues is not None
     new_job_status = QueryJobStatus.RUNNING
+    reducer_failed = False
     for task_result_obj in task_results:
         task_result = QueryTaskResult.model_validate(task_result_obj)
-        task_id = task_result.task_id
         task_status = task_result.status
         if not task_status == QueryTaskStatus.SUCCEEDED:
             new_job_status = QueryJobStatus.FAILED
-            logger.error(
-                f"Search task job-{job_id}-task-{task_id} failed. "
-                f"Check {task_result.error_log_path} for details."
-            )
+            logger.error("Search task failed. Check task log for details.")
         else:
             job.num_archives_searched += 1
-            logger.info(
-                f"Search task job-{job_id}-task-{task_id} succeeded in "
-                f"{task_result.duration} second(s)."
-            )
+            logger.info("Search task succeeded.")
 
     if new_job_status != QueryJobStatus.FAILED:
         max_num_results = job.search_config.max_num_results
@@ -1013,7 +995,7 @@ async def handle_finished_search_job(
     if new_job_status == QueryJobStatus.RUNNING:
         job.current_sub_job_async_task_result = None
         job.state = InternalJobState.WAITING_FOR_DISPATCH
-        logger.info(f"Job {job_id} waiting for more archives to search.")
+        logger.info("Job waiting for more archives to search.")
         set_job_or_task_status(
             db_conn,
             QUERY_JOBS_TABLE_NAME,
@@ -1024,7 +1006,22 @@ async def handle_finished_search_job(
         )
         return
 
-    reducer_failed = False
+    if (
+        has_aggregation
+        and isinstance(job.current_sub_job_async_task_result, SpiderQueryJobHandle)
+        and new_job_status != QueryJobStatus.FAILED
+    ):
+        try:
+            reducer_result = job.current_sub_job_async_task_result.get_reducer_result()
+            if reducer_result is None or reducer_result.get("status") != "success":
+                reducer_failed = True
+                new_job_status = QueryJobStatus.FAILED
+                logger.error("Reducer task failed.")
+        except Exception:
+            reducer_failed = True
+            new_job_status = QueryJobStatus.FAILED
+            logger.exception("Failed to retrieve reducer result.")
+
     if is_reducer_job:
         # Notify reducer that it should have received all results
         msg = ReducerHandlerMessage(ReducerHandlerMessageType.SUCCESS)
@@ -1049,11 +1046,11 @@ async def handle_finished_search_job(
         duration=(datetime.datetime.now() - job.start_time).total_seconds(),
     ):
         if new_job_status == QueryJobStatus.SUCCEEDED:
-            logger.info(f"Completed job {job_id}.")
+            logger.info("Completed job.")
         elif reducer_failed:
-            logger.error(f"Completed job {job_id} with failing reducer.")
+            logger.error("Completed job with failing reducer.")
         else:
-            logger.info(f"Completed job {job_id} with failing tasks.")
+            logger.info("Completed job with failing tasks.")
     del active_jobs[job_id]
 
 
@@ -1069,24 +1066,15 @@ async def handle_finished_stream_extraction_job(
 
     num_tasks = len(task_results)
     if 1 != num_tasks:
-        logger.error(
-            f"Unexpected number of tasks for extraction job {job_id}. Expected 1, got {num_tasks}."
-        )
+        logger.error("Unexpected number of extraction tasks.")
         new_job_status = QueryJobStatus.FAILED
     else:
         task_result = QueryTaskResult.model_validate(task_results[0])
-        task_id = task_result.task_id
         if not QueryTaskStatus.SUCCEEDED == task_result.status:
-            logger.error(
-                f"Extraction task job-{job_id}-task-{task_id} failed. "
-                f"Check {task_result.error_log_path} for details."
-            )
+            logger.error("Extraction task failed. Check task log for details.")
             new_job_status = QueryJobStatus.FAILED
         else:
-            logger.info(
-                f"Extraction task job-{job_id}-task-{task_id} succeeded in "
-                f"{task_result.duration} second(s)."
-            )
+            logger.info("Extraction task succeeded.")
 
     if set_job_or_task_status(
         db_conn,
@@ -1098,9 +1086,9 @@ async def handle_finished_stream_extraction_job(
         duration=(datetime.datetime.now() - job.start_time).total_seconds(),
     ):
         if new_job_status == QueryJobStatus.SUCCEEDED:
-            logger.info(f"Completed stream extraction job {job_id}.")
+            logger.info("Completed stream extraction job.")
         else:
-            logger.info(f"Completed stream extraction job {job_id} with failing tasks.")
+            logger.info("Completed stream extraction job with failing tasks.")
 
     waiting_jobs: list[str]
     if QueryJobType.EXTRACT_IR == job.get_type():
@@ -1112,7 +1100,7 @@ async def handle_finished_stream_extraction_job(
 
     waiting_jobs.remove(job_id)
     for waiting_job in waiting_jobs:
-        logger.info(f"Setting status to {new_job_status.to_str()} for waiting jobs: {waiting_job}.")
+        logger.info("Setting status for waiting job.")
         set_job_or_task_status(
             db_conn,
             QUERY_JOBS_TABLE_NAME,
@@ -1136,8 +1124,8 @@ async def check_job_status_and_update_db(db_conn_pool, results_cache_uri):
             job = active_jobs[job_id]
             try:
                 returned_results = try_getting_task_result(job.current_sub_job_async_task_result)
-            except Exception as e:
-                logger.error(f"Job `{job_id}` failed: {e}.")
+            except Exception:
+                logger.error("Job failed.")
                 # Clean up
                 if QueryJobType.SEARCH_OR_AGGREGATION == job.get_type():
                     if job.reducer_handler_msg_queues is not None:
@@ -1166,7 +1154,7 @@ async def check_job_status_and_update_db(db_conn_pool, results_cache_uri):
             elif job_type in (QueryJobType.EXTRACT_JSON, QueryJobType.EXTRACT_IR):
                 await handle_finished_stream_extraction_job(db_conn, job, returned_results)
             else:
-                logger.error(f"Unexpected job type: {job_type}, skipping job {job_id}")
+                logger.error("Unexpected job type; skipping job.")
 
 
 async def handle_job_updates(db_conn_pool, results_cache_uri: str, jobs_poll_delay: float):
@@ -1246,7 +1234,7 @@ async def main(argv: list[str]) -> int:
         if clp_config.query_scheduler.type == OrchestrationType.SPIDER:
             clp_config.database.load_credentials_from_env(user_type=ClpDbUserType.SPIDER)
     except (ValidationError, ValueError) as err:
-        logger.error(err)
+        logger.error("Failed to load configuration.")
         return -1
     except Exception:
         logger.exception(f"Failed to initialize {QUERY_SCHEDULER_COMPONENT_NAME}.")
@@ -1268,7 +1256,7 @@ async def main(argv: list[str]) -> int:
     try:
         killed_jobs = kill_hanging_jobs(sql_adapter, SchedulerType.QUERY)
         if killed_jobs is not None:
-            logger.info(f"Killed {len(killed_jobs)} hanging query jobs.")
+            logger.info("Killed hanging query jobs.")
     except Exception:
         logger.exception("Failed to kill hanging query jobs.")
         return -1
@@ -1289,16 +1277,11 @@ async def main(argv: list[str]) -> int:
         )
 
         if False == db_conn_pool.alive():
-            logger.error(
-                f"Failed to connect to archive database "
-                f"{clp_config.database.host}:{clp_config.database.port}."
-            )
+            logger.error("Failed to connect to archive database.")
             return -1
 
-        logger.info(
-            f"Connected to archive database {clp_config.database.host}:{clp_config.database.port}."
-        )
-        logger.info(f"{QUERY_SCHEDULER_COMPONENT_NAME} started.")
+        logger.info("Connected to archive database.")
+        logger.info("Query scheduler started.")
         batch_size = clp_config.query_scheduler.num_archives_to_search_per_sub_job
         job_handler = asyncio.create_task(
             handle_jobs(

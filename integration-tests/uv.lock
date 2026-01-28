@@ -2665,7 +2665,7 @@ wheels = [
 [[package]]
 name = "yscope-spider-py"
 version = "0.2.1"
-source = { git = "https://github.com/sitaowang1998/spider.git?subdirectory=python%2Fspider-py&rev=channel-prototype#cc61b2e9b067c2da3d9d4d24421dae30e6d13397" }
+source = { git = "https://github.com/sitaowang1998/spider.git?subdirectory=python%2Fspider-py&rev=channel-prototype#e36dd7225be70eabcd92f23088974806e4bda1c4" }
 dependencies = [
     { name = "lark" },
     { name = "mariadb" },

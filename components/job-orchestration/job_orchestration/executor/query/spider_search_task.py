@@ -6,6 +6,7 @@ Results are streamed to a channel for consumption by a reducer task.
 """
 
 import datetime
+import logging
 import json
 import os
 import signal
@@ -15,9 +16,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import msgpack
 from botocore.exceptions import BotoCoreError, ClientError
 from clp_py_utils.clp_config import Database, StorageEngine, StorageType, WorkerConfig
-from clp_py_utils.clp_logging import get_logger, set_logging_level
+from clp_py_utils.clp_logging import get_logger, get_logging_formatter, set_logging_level
 from clp_py_utils.s3_utils import s3_put
 from clp_py_utils.sql_adapter import SqlAdapter
 from spider_py import Int8, Int64, TaskContext
@@ -39,6 +41,18 @@ from job_orchestration.utils.spider_utils import int8_list_to_utf8_str, utf8_str
 
 logger = get_logger("spider_search")
 _MAX_RECORD_GROUP_BYTES = 16 * 1024 * 1024
+
+
+def _ensure_task_log_handler() -> None:
+    log_path = os.getenv("CLP_WORKER_LOG_PATH")
+    if not log_path:
+        return
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler) and handler.baseFilename == log_path:
+            return
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(get_logging_formatter())
+    logger.addHandler(file_handler)
 
 
 def _make_command_and_env_vars(  # noqa: C901, PLR0912, PLR0913
@@ -184,6 +198,7 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
     # Setup logging
     clp_logging_level = os.getenv("CLP_LOGGING_LEVEL")
     set_logging_level(logger, clp_logging_level)
+    _ensure_task_log_handler()
 
     start_time = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
     logger.info(
@@ -361,12 +376,19 @@ def _run_search_with_channel(  # noqa: C901, PLR0913, PLR0915
             if reducer_socket is None:
                 logger.error("Reducer proxy socket was not initialized.")
             else:
-                _stream_reducer_results(
+                record_groups_sent = _stream_reducer_results(
                     reducer_socket=reducer_socket,
                     sender=sender,
                     task_proc=task_proc,
                     expected_job_id=reducer_job_id,
                 )
+                if record_groups_sent == 0:
+                    # Ensure channel closes even when search yields no record groups.
+                    empty_group = msgpack.packb(
+                        {"group_tags": [], "records": []},
+                        use_bin_type=True,
+                    )
+                    sender.send(empty_group)
             task_proc.wait()
         else:
             # No channel streaming for non-stdout outputs.
@@ -451,9 +473,10 @@ def _stream_reducer_results(  # noqa: C901
     sender: Sender[bytes],
     task_proc: subprocess.Popen,
     expected_job_id: int | None,
-) -> None:
+) -> int:
     reducer_socket.settimeout(0.5)
     conn = None
+    record_groups_sent = 0
     try:
         while conn is None:
             try:
@@ -489,10 +512,12 @@ def _stream_reducer_results(  # noqa: C901
             if payload is None:
                 break
             sender.send(payload)
+            record_groups_sent += 1
     finally:
         if conn is not None:
             conn.close()
         reducer_socket.close()
+    return record_groups_sent
 
 
 def _make_failure_result(

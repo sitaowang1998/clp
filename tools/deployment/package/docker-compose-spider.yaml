@@ -74,11 +74,6 @@ services:
       SPIDER_DB_PASS: "${SPIDER_DB_PASS:?Please set a value.}"
       SPIDER_DB_USER: "${SPIDER_DB_USER:?Please set a value.}"
 
-  query-worker:
-    extends:
-      file: "docker-compose-all.yaml"
-      service: "spider-query-worker"
-
   log-ingestor:
     extends:
       file: "docker-compose-all.yaml"
