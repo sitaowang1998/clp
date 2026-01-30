@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import datetime
 import json
-from logging import getLogger
 from typing import Any, TYPE_CHECKING
+
+from clp_py_utils.clp_logging import get_logger
 
 from spider_py import Int64
 from spider_py.client import Channel, channel_task, Driver, group, Job, TaskGraph
@@ -36,7 +37,7 @@ from job_orchestration.utils.spider_utils import (
 if TYPE_CHECKING:
     from job_orchestration.scheduler.job_config import SearchJobConfig
 
-logger = getLogger(__name__)
+logger = get_logger("search-job-handler")
 
 
 def build_search_task_graph(num_archives: int, has_aggregation: bool) -> TaskGraph:
@@ -245,10 +246,26 @@ def dispatch_search_job(  # noqa: PLR0913
         has_aggregation=has_aggregation,
     )
 
-    logger.info("Submitting Spider job.")
+    submit_start_time = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
+    logger.info(
+        "Submitting Spider job %s at %s with %d search tasks, aggregation=%s",
+        job_id,
+        submit_start_time.isoformat(),
+        len(archives),
+        has_aggregation,
+    )
 
     # Submit job to Spider
     jobs = driver.submit_jobs([task_graph], [tuple(job_inputs)])
+
+    submit_end_time = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
+    submit_duration = (submit_end_time - submit_start_time).total_seconds()
+    logger.info(
+        "Submitted Spider job %s at %s, submission took %.3fs",
+        job_id,
+        submit_end_time.isoformat(),
+        submit_duration,
+    )
 
     if not jobs:
         raise SpiderJobSubmitError(job_id)

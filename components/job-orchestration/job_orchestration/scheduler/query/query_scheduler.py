@@ -911,7 +911,12 @@ def handle_pending_query_jobs(
                 orchestration_type,
                 spider_driver,
             )
-            logger.info("Dispatched search job.")
+            logger.info(
+                "Dispatched search job %s at %s with %d tasks.",
+                job.id,
+                job.start_time.isoformat(),
+                len(archives_for_search),
+            )
 
     return reducer_acquisition_tasks
 
@@ -1037,20 +1042,37 @@ async def handle_finished_search_job(
 
     # We set the status regardless of the job's previous status to handle the case where the
     # job is cancelled (status = CANCELLING) while we're in this method.
+    end_time = datetime.datetime.now()
+    duration = (end_time - job.start_time).total_seconds()
     if set_job_or_task_status(
         db_conn,
         QUERY_JOBS_TABLE_NAME,
         job_id,
         new_job_status,
         num_tasks_completed=job.num_archives_searched,
-        duration=(datetime.datetime.now() - job.start_time).total_seconds(),
+        duration=duration,
     ):
         if new_job_status == QueryJobStatus.SUCCEEDED:
-            logger.info("Completed job.")
+            logger.info(
+                "Completed job %s at %s, total duration=%.2fs.",
+                job_id,
+                end_time.isoformat(),
+                duration,
+            )
         elif reducer_failed:
-            logger.error("Completed job with failing reducer.")
+            logger.error(
+                "Completed job %s at %s with failing reducer, total duration=%.2fs.",
+                job_id,
+                end_time.isoformat(),
+                duration,
+            )
         else:
-            logger.info("Completed job with failing tasks.")
+            logger.info(
+                "Completed job %s at %s with failing tasks, total duration=%.2fs.",
+                job_id,
+                end_time.isoformat(),
+                duration,
+            )
     del active_jobs[job_id]
 
 
