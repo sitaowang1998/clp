@@ -160,7 +160,7 @@ def _make_command_and_env_vars(  # noqa: C901, PLR0912, PLR0913
 
 
 def search_with_channel(  # noqa: PLR0913, PLR0915
-    _: TaskContext,
+    ctx: TaskContext,
     sender: Sender[bytes],
     job_id: list[Int8],
     task_id: Int64,
@@ -175,7 +175,7 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
     This task searches an archive and streams results to a channel
     for consumption by a reducer task.
 
-    :param _: Spider task context (unused)
+    :param ctx: Spider task context containing Spider's internal task UUID
     :param sender: Channel sender for streaming results to reducer
     :param job_id: Job identifier as UTF-8 encoded Int8 list
     :param task_id: Task identifier
@@ -194,6 +194,7 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
     job_config_dict = json.loads(int8_list_to_utf8_str(job_config_json))
     db_conn_params = json.loads(int8_list_to_utf8_str(clp_metadata_db_conn_params_json))
     results_cache_uri_str = int8_list_to_utf8_str(results_cache_uri)
+    spider_task_uuid = str(ctx.task_id)
 
     # Setup logging
     clp_logging_level = os.getenv("CLP_LOGGING_LEVEL")
@@ -201,6 +202,12 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
     _ensure_task_log_handler()
 
     start_time = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
+    logger.info(
+        "[TASK_ID_MAP] spider_task_id=%s search_task_id=%d job_id=%s",
+        spider_task_uuid,
+        task_id_int,
+        job_id_str,
+    )
     logger.info(
         "Started %s task %d for job %s at %s",
         task_name,
@@ -543,7 +550,7 @@ def _make_failure_result(
 
 
 def search_without_channel(  # noqa: PLR0913
-    _: TaskContext,
+    ctx: TaskContext,
     job_id: list[Int8],
     task_id: Int64,
     archive_id: list[Int8],
@@ -557,7 +564,7 @@ def search_without_channel(  # noqa: PLR0913
     This task searches an archive and writes results directly via clp binary
     (results-cache, network, or file output modes).
 
-    :param _: Spider task context (unused)
+    :param ctx: Spider task context containing Spider's internal task UUID
     :param job_id: Job identifier as UTF-8 encoded Int8 list
     :param task_id: Task identifier
     :param archive_id: Archive to search as UTF-8 encoded Int8 list
@@ -575,6 +582,7 @@ def search_without_channel(  # noqa: PLR0913
     job_config_dict = json.loads(int8_list_to_utf8_str(job_config_json))
     db_conn_params = json.loads(int8_list_to_utf8_str(clp_metadata_db_conn_params_json))
     results_cache_uri_str = int8_list_to_utf8_str(results_cache_uri)
+    spider_task_uuid = str(ctx.task_id)
 
     # Setup logging
     clp_logging_level = os.getenv("CLP_LOGGING_LEVEL")
@@ -582,6 +590,12 @@ def search_without_channel(  # noqa: PLR0913
     _ensure_task_log_handler()
 
     start_time = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
+    logger.info(
+        "[TASK_ID_MAP] spider_task_id=%s search_task_id=%d job_id=%s",
+        spider_task_uuid,
+        task_id_int,
+        job_id_str,
+    )
     logger.info(
         "Started %s task %d for job %s at %s",
         task_name,
