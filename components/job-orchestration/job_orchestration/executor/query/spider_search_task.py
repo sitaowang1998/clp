@@ -14,6 +14,7 @@ import socket
 import struct
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import msgpack
@@ -186,6 +187,7 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
     :return: QueryTaskResult as JSON string (Int8 list)
     """
     task_name = "search_with_channel"
+    func_entry_ms = int(time.monotonic() * 1000)
 
     # Decode inputs
     job_id_str = int8_list_to_utf8_str(job_id)
@@ -195,6 +197,7 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
     db_conn_params = json.loads(int8_list_to_utf8_str(clp_metadata_db_conn_params_json))
     results_cache_uri_str = int8_list_to_utf8_str(results_cache_uri)
     spider_task_uuid = str(ctx.task_id)
+    decode_end_ms = int(time.monotonic() * 1000)
 
     # Setup logging
     clp_logging_level = os.getenv("CLP_LOGGING_LEVEL")
@@ -215,15 +218,32 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
         job_id_str,
         start_time.isoformat(),
     )
+    logger.info(
+        "[TIMING] spider_task_id=%s func_entry=%d decode_end=%d decode_duration_ms=%d",
+        spider_task_uuid,
+        func_entry_ms,
+        decode_end_ms,
+        decode_end_ms - func_entry_ms,
+    )
     sql_adapter = SqlAdapter(Database.model_validate(db_conn_params))
 
     # Load worker configuration
+    config_load_start_ms = int(time.monotonic() * 1000)
     clp_config_path = Path(os.getenv("CLP_CONFIG_PATH"))
     worker_config = load_worker_config(clp_config_path, logger)
     if worker_config is None:
         return _make_failure_result(sql_adapter, task_id_int, start_time)
 
     search_config = SearchJobConfig.model_validate(job_config_dict)
+    config_load_end_ms = int(time.monotonic() * 1000)
+    logger.info(
+        "[TIMING] spider_task_id=%s config_load_start=%d config_load_end=%d "
+        "config_load_duration_ms=%d",
+        spider_task_uuid,
+        config_load_start_ms,
+        config_load_end_ms,
+        config_load_end_ms - config_load_start_ms,
+    )
 
     reducer_socket: socket.socket | None = None
     job_id_int: int | None = None
@@ -247,6 +267,7 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
         search_config.aggregation_config.job_id = job_id_int
 
     # Build search command
+    cmd_build_start_ms = int(time.monotonic() * 1000)
     clp_home = Path(os.getenv("CLP_HOME"))
 
     task_command, core_clp_env_vars, output_mode = _make_command_and_env_vars(
@@ -257,6 +278,14 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
         results_cache_uri=results_cache_uri_str,
         results_collection=job_id_str,
     )
+    cmd_build_end_ms = int(time.monotonic() * 1000)
+    logger.info(
+        "[TIMING] spider_task_id=%s cmd_build_start=%d cmd_build_end=%d cmd_build_duration_ms=%d",
+        spider_task_uuid,
+        cmd_build_start_ms,
+        cmd_build_end_ms,
+        cmd_build_end_ms - cmd_build_start_ms,
+    )
     if not task_command or output_mode is None:
         logger.error("Error creating %s command", task_name)
         if reducer_socket is not None:
@@ -264,6 +293,7 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
         return _make_failure_result(sql_adapter, task_id_int, start_time)
 
     # Run search and stream results to channel
+    search_start_ms = int(time.monotonic() * 1000)
     result = _run_search_with_channel(
         sql_adapter=sql_adapter,
         sender=sender,
@@ -277,6 +307,14 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
         archive_id=archive_id_str,
         start_time=start_time,
     )
+    search_end_ms = int(time.monotonic() * 1000)
+    logger.info(
+        "[TIMING] spider_task_id=%s search_start=%d search_end=%d search_duration_ms=%d",
+        spider_task_uuid,
+        search_start_ms,
+        search_end_ms,
+        search_end_ms - search_start_ms,
+    )
 
     storage_config = worker_config.stream_output.storage
     if (
@@ -284,6 +322,7 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
         and search_config.write_to_file
         and QueryTaskStatus.SUCCEEDED == result.status
     ):
+        s3_upload_start_ms = int(time.monotonic() * 1000)
         s3_config = storage_config.s3_config
         dest_path = f"{job_id_str}/{archive_id_str}"
         src_file = Path(worker_config.stream_output.get_directory()) / job_id_str / archive_id_str
@@ -298,7 +337,17 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
             result.error_log_path = str(os.getenv("CLP_WORKER_LOG_PATH"))
 
         src_file.unlink()
+        s3_upload_end_ms = int(time.monotonic() * 1000)
+        logger.info(
+            "[TIMING] spider_task_id=%s s3_upload_start=%d s3_upload_end=%d "
+            "s3_upload_duration_ms=%d",
+            spider_task_uuid,
+            s3_upload_start_ms,
+            s3_upload_end_ms,
+            s3_upload_end_ms - s3_upload_start_ms,
+        )
 
+    func_exit_ms = int(time.monotonic() * 1000)
     end_time = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
     logger.info(
         "Finished %s task %d for job %s at %s status=%s duration=%.2fs",
@@ -308,6 +357,13 @@ def search_with_channel(  # noqa: PLR0913, PLR0915
         end_time.isoformat(),
         result.status,
         result.duration,
+    )
+    logger.info(
+        "[TIMING] spider_task_id=%s func_entry=%d func_exit=%d total_func_duration_ms=%d",
+        spider_task_uuid,
+        func_entry_ms,
+        func_exit_ms,
+        func_exit_ms - func_entry_ms,
     )
     return utf8_str_to_int8_list(json.dumps(result.model_dump()))
 
@@ -574,6 +630,7 @@ def search_without_channel(  # noqa: PLR0913
     :return: QueryTaskResult as JSON string (Int8 list)
     """
     task_name = "search_without_channel"
+    func_entry_ms = int(time.monotonic() * 1000)
 
     # Decode inputs
     job_id_str = int8_list_to_utf8_str(job_id)
@@ -583,6 +640,7 @@ def search_without_channel(  # noqa: PLR0913
     db_conn_params = json.loads(int8_list_to_utf8_str(clp_metadata_db_conn_params_json))
     results_cache_uri_str = int8_list_to_utf8_str(results_cache_uri)
     spider_task_uuid = str(ctx.task_id)
+    decode_end_ms = int(time.monotonic() * 1000)
 
     # Setup logging
     clp_logging_level = os.getenv("CLP_LOGGING_LEVEL")
@@ -603,17 +661,35 @@ def search_without_channel(  # noqa: PLR0913
         job_id_str,
         start_time.isoformat(),
     )
+    logger.info(
+        "[TIMING] spider_task_id=%s func_entry=%d decode_end=%d decode_duration_ms=%d",
+        spider_task_uuid,
+        func_entry_ms,
+        decode_end_ms,
+        decode_end_ms - func_entry_ms,
+    )
     sql_adapter = SqlAdapter(Database.model_validate(db_conn_params))
 
     # Load worker configuration
+    config_load_start_ms = int(time.monotonic() * 1000)
     clp_config_path = Path(os.getenv("CLP_CONFIG_PATH"))
     worker_config = load_worker_config(clp_config_path, logger)
     if worker_config is None:
         return _make_failure_result(sql_adapter, task_id_int, start_time)
 
     search_config = SearchJobConfig.model_validate(job_config_dict)
+    config_load_end_ms = int(time.monotonic() * 1000)
+    logger.info(
+        "[TIMING] spider_task_id=%s config_load_start=%d config_load_end=%d "
+        "config_load_duration_ms=%d",
+        spider_task_uuid,
+        config_load_start_ms,
+        config_load_end_ms,
+        config_load_end_ms - config_load_start_ms,
+    )
 
     # Build search command
+    cmd_build_start_ms = int(time.monotonic() * 1000)
     clp_home = Path(os.getenv("CLP_HOME"))
 
     task_command, core_clp_env_vars, output_mode = _make_command_and_env_vars(
@@ -624,11 +700,20 @@ def search_without_channel(  # noqa: PLR0913
         results_cache_uri=results_cache_uri_str,
         results_collection=job_id_str,
     )
+    cmd_build_end_ms = int(time.monotonic() * 1000)
+    logger.info(
+        "[TIMING] spider_task_id=%s cmd_build_start=%d cmd_build_end=%d cmd_build_duration_ms=%d",
+        spider_task_uuid,
+        cmd_build_start_ms,
+        cmd_build_end_ms,
+        cmd_build_end_ms - cmd_build_start_ms,
+    )
     if not task_command or output_mode is None:
         logger.error("Error creating %s command", task_name)
         return _make_failure_result(sql_adapter, task_id_int, start_time)
 
     # Run search (no channel streaming)
+    search_start_ms = int(time.monotonic() * 1000)
     result = _run_search_without_channel(
         sql_adapter=sql_adapter,
         task_command=task_command,
@@ -637,6 +722,14 @@ def search_without_channel(  # noqa: PLR0913
         task_id=task_id_int,
         start_time=start_time,
     )
+    search_end_ms = int(time.monotonic() * 1000)
+    logger.info(
+        "[TIMING] spider_task_id=%s search_start=%d search_end=%d search_duration_ms=%d",
+        spider_task_uuid,
+        search_start_ms,
+        search_end_ms,
+        search_end_ms - search_start_ms,
+    )
 
     storage_config = worker_config.stream_output.storage
     if (
@@ -644,6 +737,7 @@ def search_without_channel(  # noqa: PLR0913
         and search_config.write_to_file
         and QueryTaskStatus.SUCCEEDED == result.status
     ):
+        s3_upload_start_ms = int(time.monotonic() * 1000)
         s3_config = storage_config.s3_config
         dest_path = f"{job_id_str}/{archive_id_str}"
         src_file = Path(worker_config.stream_output.get_directory()) / job_id_str / archive_id_str
@@ -658,7 +752,17 @@ def search_without_channel(  # noqa: PLR0913
             result.error_log_path = str(os.getenv("CLP_WORKER_LOG_PATH"))
 
         src_file.unlink()
+        s3_upload_end_ms = int(time.monotonic() * 1000)
+        logger.info(
+            "[TIMING] spider_task_id=%s s3_upload_start=%d s3_upload_end=%d "
+            "s3_upload_duration_ms=%d",
+            spider_task_uuid,
+            s3_upload_start_ms,
+            s3_upload_end_ms,
+            s3_upload_end_ms - s3_upload_start_ms,
+        )
 
+    func_exit_ms = int(time.monotonic() * 1000)
     end_time = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
     logger.info(
         "Finished %s task %d for job %s at %s status=%s duration=%.2fs",
@@ -668,6 +772,13 @@ def search_without_channel(  # noqa: PLR0913
         end_time.isoformat(),
         result.status,
         result.duration,
+    )
+    logger.info(
+        "[TIMING] spider_task_id=%s func_entry=%d func_exit=%d total_func_duration_ms=%d",
+        spider_task_uuid,
+        func_entry_ms,
+        func_exit_ms,
+        func_exit_ms - func_entry_ms,
     )
     return utf8_str_to_int8_list(json.dumps(result.model_dump()))
 
