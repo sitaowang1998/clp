@@ -231,7 +231,9 @@ services:
     <<: *service_defaults
     hostname: "spider_scheduler"
     environment:
-      SPIDER_LOG_FILE: "/var/log/spider_scheduler.log"
+      SPIDER_LOG_FILE: "/var/log/spider_scheduler/spider_scheduler.log"
+    volumes:
+      - *volume_clp_logs
     depends_on:
       db-table-creator:
         condition: "service_completed_successfully"

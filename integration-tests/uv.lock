@@ -1025,7 +1025,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pymongo", specifier = ">=4.16.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "yscope-spider-py", git = "https://github.com/sitaowang1998/spider.git?subdirectory=python%2Fspider-py&rev=channel-prototype" },
+    { name = "yscope-spider-py", git = "https://github.com/sitaowang1998/spider.git?subdirectory=python%2Fspider-py&rev=230f0789eb509b9a2b403f30fb710d903176e36a" },
 ]
 
 [package.metadata.requires-dev]
@@ -3072,7 +3072,7 @@ wheels = [
 [[package]]
 name = "yscope-spider-py"
 version = "0.2.1"
-source = { git = "https://github.com/sitaowang1998/spider.git?subdirectory=python%2Fspider-py&rev=channel-prototype#e36dd7225be70eabcd92f23088974806e4bda1c4" }
+source = { git = "https://github.com/sitaowang1998/spider.git?subdirectory=python%2Fspider-py&rev=230f0789eb509b9a2b403f30fb710d903176e36a#230f0789eb509b9a2b403f30fb710d903176e36a" }
 dependencies = [
     { name = "lark" },
     { name = "mariadb" },

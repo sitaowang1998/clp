@@ -15,7 +15,7 @@ dependencies = [
     "pydantic>=2.12.5",
     "pymongo>=4.16.0",
     "PyYAML>=6.0.3",
-    "yscope-spider-py @ git+https://github.com/sitaowang1998/spider.git@23caccdd2a2616a3bcfa8d7ed83b4147bdad1c23#subdirectory=python/spider-py",
+    "yscope-spider-py @ git+https://github.com/sitaowang1998/spider.git@230f0789eb509b9a2b403f30fb710d903176e36a#subdirectory=python/spider-py",
 ]
 
 [build-system]

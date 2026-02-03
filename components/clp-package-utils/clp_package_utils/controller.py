@@ -377,6 +377,10 @@ class BaseController(ABC):
 
         logger.info(f"Setting up environment for {component_name}...")
 
+        logs_dir = self._clp_config.logs_directory / component_name
+        resolved_logs_dir = resolve_host_path_in_container(logs_dir)
+        resolved_logs_dir.mkdir(parents=True, exist_ok=True)
+
         env_vars = EnvVarsDict()
 
         # Connection config
