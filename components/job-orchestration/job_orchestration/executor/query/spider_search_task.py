@@ -547,13 +547,13 @@ def _stream_reducer_results(  # noqa: C901
             except TimeoutError:  # noqa: PERF203
                 if task_proc.poll() is not None:
                     logger.exception("Search process exited before reducer proxy connected.")
-                    return
+                    return 0
 
         conn.settimeout(0.5)
         job_id_bytes = _recv_exact(conn, 8, task_proc)
         if job_id_bytes is None:
             logger.error("Failed to read reducer handshake.")
-            return
+            return 0
         reducer_job_id = struct.unpack("<q", job_id_bytes)[0]
         if expected_job_id is not None and reducer_job_id != expected_job_id:
             logger.warning(
