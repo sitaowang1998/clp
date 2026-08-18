@@ -6,6 +6,7 @@ shopt: ["globstar"]
 includes:
   codegen: "taskfiles/codegen.yaml"
   deps: "taskfiles/deps/main.yaml"
+  docker-compose: "taskfiles/compose.yaml"
   docker-images: "taskfiles/docker-images.yaml"
   docs: "taskfiles/docs.yaml"
   helm: "taskfiles/helm.yaml"
@@ -123,6 +124,8 @@ tasks:
     sources:
       - "{{.G_BUILD_DIR}}/clp-package-image.id"
       - "{{.G_CONFIG_SCHEMA_BUILD_DIR}}/clp-config.schema.json"
+      - "{{.G_SPIDER_COMPOSE_BUILD_DIR}}/**/*"
+      - "{{.G_SPIDER_COMPOSE_BUILD_DIR}}/.env.example"
       - "{{.G_WEBUI_BUILD_DIR}}/settings.json"
       - "{{.TASKFILE}}"
       - "components/package-template/src/**/*"
@@ -131,6 +134,7 @@ tasks:
     deps:
       - "docker-images:package"
       - "generate-config-schemas"
+      - "docker-compose:spider"
       - task: "utils:checksum:validate"
         vars:
           CHECKSUM_FILE: "{{.CHECKSUM_FILE}}"
@@ -160,6 +164,10 @@ tasks:
         rsync --archive
         "tools/deployment/package/"
         "{{.OUTPUT_DIR}}"
+      - >-
+        rsync --archive --mkpath
+        "{{.G_SPIDER_COMPOSE_BUILD_DIR}}/"
+        "{{.OUTPUT_DIR}}/spider-compose/"
       - >-
         rsync --archive
         "{{.G_BUILD_DIR}}/clp-package-image.id"
