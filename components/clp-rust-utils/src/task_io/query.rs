@@ -98,8 +98,8 @@ impl TryFrom<&SearchJobConfig> for ClpSQueryOption {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, tag = "type")]
 pub enum OutputHandle {
-    /// The results cache, addressed by a `MongoDB` URI whose path names the database. The collection
-    /// is the query job's ID.
+    /// The results cache, addressed by a `MongoDB` URI whose path names the database. The
+    /// collection is the query job's ID.
     #[serde(rename = "results_cache")]
     ResultsCache { uri: NonEmptyString },
 

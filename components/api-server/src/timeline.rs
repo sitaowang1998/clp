@@ -23,7 +23,7 @@ use crate::error::ClientError;
 ///
 /// * Forwards [`mongodb::Collection::aggregate`]'s errors on failure.
 /// * Stream items forward cursor errors and [`serialize_bucket`]'s errors.
-pub(crate) async fn fetch(
+pub async fn fetch(
     collection: Collection<Document>,
 ) -> Result<impl Stream<Item = Result<String, ClientError>> + use<>, ClientError> {
     // MongoDB's $sum silently ignores nonnumeric inputs. Carry validity through the grouping
