@@ -82,11 +82,27 @@ private:
 class ResultsCacheSink : public AggregationSink {
 public:
     // Constructors
+    /**
+     * Creates a sink for per-archive aggregation results.
+     *
+     * @param uri
+     * @param collection
+     * @param batch_size
+     * @param archive_id
+     * @param dataset
+     * @param replace_time_buckets Whether to replace contributions keyed by dataset, archive,
+     * and timestamp. Each result must contain the final count for that archive's bucket, and
+     * retries must use identical inputs.
+     * @throw std::invalid_argument if replacement writes use unacknowledged write concern.
+     * @throw ResultsCacheConnectionError if connecting to the results cache fails.
+     */
     ResultsCacheSink(
             std::string_view uri,
             std::string_view collection,
             uint64_t batch_size,
-            std::string_view archive_id
+            std::string_view archive_id,
+            std::string_view dataset,
+            bool replace_time_buckets
     );
 
     // Methods implementing AggregationSink
@@ -112,7 +128,7 @@ public:
 private:
     // Methods
     /**
-     * Inserts the buffered result documents into the collection.
+     * Persists the buffered documents, replacing time-bucket contributions when configured.
      * @return A void result on success, or an error code indicating the failure:
      * - std::errc::io_error if flushing failed.
      */
@@ -123,6 +139,8 @@ private:
     mongocxx::collection m_collection;
     uint64_t m_batch_size;
     std::string m_archive_id;
+    std::string m_dataset;
+    bool m_replace_time_buckets;
     std::vector<bsoncxx::document::value> m_results;
 };
 }  // namespace clp_s
