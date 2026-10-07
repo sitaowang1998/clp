@@ -36,6 +36,7 @@ use crate::task::utils::s3_credential_env;
 /// Returns an error if:
 ///
 /// * The configured storage engine is not [`StorageEngine::ClpS`].
+/// * The count-by-time bucket width is not positive.
 /// * `output_handle` is not [`OutputHandle::ResultsCache`]. The current implementation only
 ///   supports result cache output streaming.
 /// * Forwards [`resolve_archive_input`]'s return values on failure.
@@ -55,6 +56,13 @@ pub(super) fn search(
     let OutputHandle::ResultsCache { uri } = output_handle else {
         anyhow::bail!("unsupported query output handler");
     };
+
+    if clp_s_query_option
+        .count_by_time_bucket_size_millisecs
+        .is_some_and(|size| size <= 0)
+    {
+        anyhow::bail!("count-by-time bucket size must be positive");
+    }
 
     let dataset = resolve_dataset_name(dataset);
 
@@ -205,6 +213,11 @@ fn build_clp_s_search_args_for_result_cache(
         args.push(OsString::from("--ignore-case"));
     }
 
+    if let Some(bucket_size) = clp_s_query_option.count_by_time_bucket_size_millisecs {
+        args.push(OsString::from("--count-by-time"));
+        args.push(OsString::from(bucket_size.to_string()));
+    }
+
     args.extend([
         OsString::from("results-cache"),
         OsString::from("--uri"),
@@ -212,7 +225,11 @@ fn build_clp_s_search_args_for_result_cache(
         OsString::from("--collection"),
         OsString::from(query_job_id.to_string()),
     ]);
-    if let Some(max_num_results) = clp_s_query_option.max_num_results {
+    if clp_s_query_option
+        .count_by_time_bucket_size_millisecs
+        .is_none()
+        && let Some(max_num_results) = clp_s_query_option.max_num_results
+    {
         args.push(OsString::from("--max-num-results"));
         args.push(OsString::from(max_num_results.to_string()));
     }
@@ -331,6 +348,7 @@ mod tests {
             begin_timestamp_millisecs: None,
             end_timestamp_millisecs: None,
             ignore_case: false,
+            count_by_time_bucket_size_millisecs: None,
         }
     }
 
@@ -409,6 +427,92 @@ mod tests {
     }
 
     #[test]
+    fn timeline_args_preserve_filters_and_omit_raw_result_limit() -> anyhow::Result<()> {
+        let options = ClpSQueryOption {
+            count_by_time_bucket_size_millisecs: Some(1_000),
+            max_num_results: NonZeroU32::new(1),
+            begin_timestamp_millisecs: Some(-1),
+            end_timestamp_millisecs: Some(2_000),
+            ignore_case: true,
+            ..unbounded_query_option()
+        };
+        for selector in [
+            directory_selector(),
+            ArchiveSelector::ObjectUrl("https://archive".to_owned()),
+        ] {
+            let args = build_clp_s_search_args_for_result_cache(
+                &selector,
+                &options,
+                "mongodb://localhost/results",
+                42,
+                "ds1",
+            );
+            let args: Vec<_> = args
+                .iter()
+                .map(|arg| {
+                    arg.to_str()
+                        .ok_or_else(|| anyhow::anyhow!("non-UTF-8 argument"))
+                })
+                .collect::<anyhow::Result<_>>()?;
+            let mut expected = match selector {
+                ArchiveSelector::Directory { .. } => {
+                    vec!["s", "/archives/ds1", "--archive-id", ARCHIVE_ID]
+                }
+                ArchiveSelector::ObjectUrl(_) => vec!["s", "https://archive", "--auth", "s3"],
+            };
+            expected.extend([
+                "level: \"ERROR\"",
+                "--tge",
+                "-1",
+                "--tle",
+                "2000",
+                "--ignore-case",
+                "--count-by-time",
+                "1000",
+                "results-cache",
+                "--uri",
+                "mongodb://localhost/results",
+                "--collection",
+                "42",
+                "--dataset",
+                "ds1",
+            ]);
+            assert_eq!(args, expected);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn search_rejects_nonpositive_timeline_bucket_before_starting_process() -> anyhow::Result<()> {
+        let config = SpiderTaskExecutorConfig {
+            package: Package {
+                storage_engine: StorageEngine::ClpS,
+            },
+            ..Default::default()
+        };
+        for bucket_size in [0, -1] {
+            let options = ClpSQueryOption {
+                count_by_time_bucket_size_millisecs: Some(bucket_size),
+                ..unbounded_query_option()
+            };
+            let error = search(
+                &task_context(),
+                &config,
+                42,
+                &options,
+                ARCHIVE_ID.parse::<ArchiveId>()?,
+                None,
+                &OutputHandle::ResultsCache {
+                    uri: NonEmptyString::from_static_str("mongodb://localhost/results"),
+                },
+            )
+            .expect_err("invalid bucket width must fail before process setup");
+            assert!(error.to_string().contains("must be positive"));
+        }
+        Ok(())
+    }
+
+    #[test]
     fn build_clp_s_search_args_for_result_cache_fs_with_timestamps_and_ignore_case() {
         let clp_s_query_option = ClpSQueryOption {
             query_string: NonEmptyString::from_static_str("level: \"ERROR\""),
@@ -416,6 +520,7 @@ mod tests {
             begin_timestamp_millisecs: Some(1_310_138_944_000),
             end_timestamp_millisecs: Some(1_311_208_074_120),
             ignore_case: true,
+            count_by_time_bucket_size_millisecs: None,
         };
 
         assert_eq!(
@@ -458,6 +563,7 @@ mod tests {
             begin_timestamp_millisecs: Some(1_310_138_944_000),
             end_timestamp_millisecs: Some(1_311_208_074_120),
             ignore_case: true,
+            count_by_time_bucket_size_millisecs: None,
         };
 
         assert_eq!(
