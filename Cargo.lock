@@ -3281,6 +3281,7 @@ dependencies = [
  "const_format",
  "non-empty-string",
  "serde",
+ "serde_json",
  "spider-client",
  "spider-core",
  "sqlx",
