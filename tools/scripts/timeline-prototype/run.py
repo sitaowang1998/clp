@@ -19,6 +19,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 
 def write_json(path: Path, value: object) -> None:
@@ -41,7 +42,7 @@ def wait_port(port: int, process: subprocess.Popen) -> None:
     raise TimeoutError(message)
 
 
-def mongo(container: str, expression: str) -> list[dict[str, int]]:
+def mongo(container: str, expression: str) -> list[dict[str, Any]]:
     """Read or reset this experiment's isolated result database."""
     result = subprocess.run(
         [
@@ -261,11 +262,14 @@ def cluster(work: Path, spider: Path) -> Iterator[None]:
             log.close()
 
 
-def aggregate_rows(rows: list[dict[str, int]]) -> dict[str, int]:
+def aggregate_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
     """Sum per-archive contributions for comparison with the raw-event oracle."""
     actual: dict[str, int] = {}
     for row in rows:
-        timestamp = str(row["timestamp"])
+        if set(row) != {"_id", "count"}:
+            message = "unexpected per-archive contribution fields"
+            raise RuntimeError(message)
+        timestamp = str(row["_id"]["timestamp"])
         actual[timestamp] = actual.get(timestamp, 0) + row["count"]
     return actual
 

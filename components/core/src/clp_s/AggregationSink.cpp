@@ -114,9 +114,17 @@ auto ResultsCacheSink::write(AggregationResult const& result)
                 kvp("archive_id", m_archive_id),
                 kvp("timestamp", timestamp)
         );
-        document.append(kvp("_id", identity.extract()), kvp("dataset", m_dataset));
+        bsoncxx::builder::basic::document contribution;
+        contribution.append(kvp("_id", identity.extract()));
+        for (auto const& field : document.view()) {
+            if ("timestamp" != field.key() && "archive_id" != field.key()) {
+                contribution.append(kvp(field.key(), field.get_value()));
+            }
+        }
+        m_results.push_back(contribution.extract());
+    } else {
+        m_results.push_back(document.extract());
     }
-    m_results.push_back(document.extract());
 
     if (m_results.size() >= m_batch_size) {
         YSTDLIB_ERROR_HANDLING_TRYV(flush_buffer());

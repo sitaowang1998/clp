@@ -177,6 +177,18 @@ async fn aggregate(
     collection: Collection<Document>,
 ) -> Result<mongodb::Cursor<Document>, ClientError> {
     let pipeline = [
+        // Spider stores the bucket identity only in `_id`; legacy Celery reducer buckets
+        // retain a top-level timestamp. Never hide a malformed Spider identity with a fallback.
+        doc! {
+            "$project": {
+                "timestamp": { "$cond": [
+                    { "$eq": [{ "$type": "$_id" }, "object"] },
+                    "$_id.timestamp",
+                    "$timestamp",
+                ] },
+                "count": 1,
+            },
+        },
         doc! {
             "$group": {
                 "_id": "$timestamp",

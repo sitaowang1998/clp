@@ -138,7 +138,7 @@ class Experiment:
             int(row["_id"]): int(row["count"])
             for row in self.database[collection].aggregate(
                 [
-                    {"$group": {"_id": "$timestamp", "count": {"$sum": "$count"}}},
+                    {"$group": {"_id": "$_id.timestamp", "count": {"$sum": "$count"}}},
                     {"$sort": {"_id": 1}},
                 ]
             )
@@ -168,7 +168,8 @@ class Experiment:
         check(self.counts("replay") == self.expected, "overlapping attempts changed counts")
         self.outcomes["repeated_and_overlapping_attempts"] = "passed"
         for document in self.database.replay.find():
-            check(isinstance(document["timestamp"], Int64), "timestamp is not BSON int64")
+            check(set(document) == {"_id", "count"}, "duplicated contribution fields persisted")
+            check(isinstance(document["_id"]["timestamp"], Int64), "timestamp is not BSON int64")
             check(isinstance(document["count"], Int64), "count is not BSON int64")
             check(
                 list(document["_id"]) == ["dataset", "archive_id", "timestamp"],

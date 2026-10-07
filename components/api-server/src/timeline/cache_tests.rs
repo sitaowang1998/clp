@@ -47,13 +47,22 @@ impl Fixture {
         }))
     }
 
-    /// Seeds both per-archive contributions and a legacy reducer bucket.
+    /// Seeds compact per-archive contributions without duplicated top-level identity fields.
     async fn seed(&self) -> anyhow::Result<()> {
         self.collection
             .insert_many([
-                doc! { "_id": 1, "timestamp": -1000_i64, "count": 3_i64, "archive_id": "a" },
-                doc! { "_id": 2, "timestamp": -1000_i64, "count": 4_i64, "archive_id": "b" },
-                doc! { "_id": 3, "timestamp": 0, "count": 9 },
+                doc! {
+                    "_id": { "dataset": "default", "archive_id": "a", "timestamp": -1000_i64 },
+                    "count": 3_i64,
+                },
+                doc! {
+                    "_id": { "dataset": "default", "archive_id": "b", "timestamp": -1000_i64 },
+                    "count": 4_i64,
+                },
+                doc! {
+                    "_id": { "dataset": "default", "archive_id": "c", "timestamp": 0_i64 },
+                    "count": 9_i64,
+                },
             ])
             .await?;
         Ok(())
@@ -140,7 +149,10 @@ async fn malformed_cache_and_worker_replacement_recompute() -> anyhow::Result<()
     for (index, value) in corrupt.into_iter().enumerate() {
         fixture
             .collection
-            .update_one(doc! { "_id": 1 }, doc! { "$set": { CACHE_FIELD: value } })
+            .update_one(
+                doc! { "_id": { "dataset": "default", "archive_id": "a", "timestamp": -1000_i64 } },
+                doc! { "$set": { CACHE_FIELD: value } },
+            )
             .await?;
         Fixture::assert_buckets(&fixture.read(&cache).await?);
         assert_eq!(fixture.aggregates.load(Ordering::SeqCst), index + 1);
@@ -149,9 +161,10 @@ async fn malformed_cache_and_worker_replacement_recompute() -> anyhow::Result<()
     fixture
         .collection
         .replace_one(
-            doc! { "_id": 1 },
+            doc! { "_id": { "dataset": "default", "archive_id": "a", "timestamp": -1000_i64 } },
             doc! {
-                "_id": 1, "timestamp": -1000_i64, "count": 3_i64, "archive_id": "a",
+                "_id": { "dataset": "default", "archive_id": "a", "timestamp": -1000_i64 },
+                "count": 3_i64,
             },
         )
         .await?;
@@ -315,7 +328,10 @@ async fn failed_cursor_never_publishes_partial_cache() -> anyhow::Result<()> {
     fixture
         .collection
         .insert_many((0..NUM_BUCKETS).map(|timestamp| {
-            doc! { "_id": timestamp, "timestamp": timestamp, "count": 1_i64 }
+            doc! {
+                "_id": { "dataset": "default", "archive_id": "a", "timestamp": timestamp },
+                "count": 1_i64,
+            }
         }))
         .await?;
     let uri = std::env::var("CLP_TEST_MONGODB_URI")?;

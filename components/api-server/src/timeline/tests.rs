@@ -64,9 +64,20 @@ async fn aggregate_timeline_in_mongodb() -> anyhow::Result<()> {
 
     collection
         .insert_many([
-            doc! { "timestamp": 1000_i64, "count": 2_i64, "archive_id": "a" },
-            doc! { "timestamp": -1000_i64, "count": 4_i64, "archive_id": "a" },
-            doc! { "timestamp": 1000_i64, "count": 3_i64, "archive_id": "b" },
+            doc! {
+                "_id": { "dataset": "default", "archive_id": "a", "timestamp": 1000_i64 },
+                "count": 2_i64,
+            },
+            doc! {
+                "_id": { "dataset": "default", "archive_id": "a", "timestamp": -1000_i64 },
+                "count": 4_i64,
+            },
+            doc! {
+                "_id": { "dataset": "other", "archive_id": "a", "timestamp": 1000_i64 },
+                "count": 3_i64,
+                // Old prototype rows may retain duplicates; the identity is authoritative.
+                "timestamp": 999_i64,
+            },
             // Legacy reducer documents have no archive ID and often use BSON int32.
             doc! { "timestamp": 0, "count": 7 },
         ])
@@ -94,6 +105,12 @@ async fn aggregate_timeline_in_mongodb() -> anyhow::Result<()> {
         doc! { "timestamp": 0, "count": Bson::Null },
         doc! { "timestamp": "0", "count": 1 },
         doc! { "count": 1 },
+        doc! { "_id": { "timestamp": "0" }, "timestamp": 0, "count": 1 },
+        doc! { "_id": { "timestamp": Bson::Null }, "timestamp": 0, "count": 1 },
+        doc! { "_id": { "archive_id": "a" }, "timestamp": 0, "count": 1 },
+        doc! { "_id": { "timestamp": [0] }, "count": 1 },
+        doc! { "_id": { "timestamp": 0_i64 }, "count": -1 },
+        doc! { "_id": { "timestamp": 0_i64 }, "count": "1" },
     ] {
         collection.insert_one(invalid.clone()).await?;
         let result = cache.fetch(collection.clone()).await;
@@ -106,7 +123,7 @@ async fn aggregate_timeline_in_mongodb() -> anyhow::Result<()> {
 
     collection
         .insert_many([
-            doc! { "timestamp": 0, "count": i64::MAX },
+            doc! { "_id": { "timestamp": 0_i64 }, "count": i64::MAX },
             doc! { "timestamp": 0, "count": 1_i64 },
         ])
         .await?;
