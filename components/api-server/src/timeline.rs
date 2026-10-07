@@ -228,4 +228,6 @@ fn serialize_bucket(document: &Document) -> Result<String, ClientError> {
 }
 
 #[cfg(test)]
+mod cache_tests;
+#[cfg(test)]
 mod tests;
