@@ -4,28 +4,19 @@ use futures::TryStreamExt;
 use mongodb::bson::Bson;
 use mongodb::bson::doc;
 
-use super::CACHE_FIELD;
-use super::Cache;
-use super::read_cached;
+use super::fetch;
 use super::serialize_bucket;
 
 #[test]
-fn cached_json_is_normalized_for_sse() {
-    assert_eq!(
-        read_cached(&doc! {
-            CACHE_FIELD: ["{\n  \"count\": 3,\n  \"timestamp\": 0\n}"],
-        }),
-        Some(vec![r#"{"timestamp":0,"count":3}"#.to_owned()])
-    );
-}
-
-#[test]
 fn serialize_plain_integer_json() -> anyhow::Result<()> {
-    let result = serialize_bucket(&doc! {
-        "_id": i64::MIN,
-        "count": i64::MAX,
-        "invalid": 0,
-    })?;
+    let result = serialize_bucket(
+        &doc! {
+            "_id": i64::MIN,
+            "count": i64::MAX,
+            "invalid": 0,
+        },
+        false,
+    )?;
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&result)?,
         serde_json::json!({ "timestamp": i64::MIN, "count": i64::MAX }),
@@ -41,7 +32,7 @@ fn reject_invalid_aggregate() {
         doc! { "_id": "0", "count": 1, "invalid": 0 },
         doc! { "_id": 0, "count": -1, "invalid": 0 },
     ] {
-        assert!(serialize_bucket(&document).is_err(), "{document:?}");
+        assert!(serialize_bucket(&document, false).is_err(), "{document:?}");
     }
 }
 
@@ -57,9 +48,8 @@ async fn aggregate_timeline_in_mongodb() -> anyhow::Result<()> {
     let collection = client
         .database("clp_timeline_tests")
         .collection(&format!("timeline_{}", mongodb::bson::oid::ObjectId::new()));
-    let cache = Cache::default();
 
-    let empty: Vec<String> = cache.fetch(collection.clone()).await?.try_collect().await?;
+    let empty: Vec<String> = fetch(collection.clone()).await?.try_collect().await?;
     assert_eq!(empty, Vec::<String>::new());
 
     collection
@@ -82,7 +72,7 @@ async fn aggregate_timeline_in_mongodb() -> anyhow::Result<()> {
             doc! { "timestamp": 0, "count": 7 },
         ])
         .await?;
-    let results: Vec<String> = cache.fetch(collection.clone()).await?.try_collect().await?;
+    let results: Vec<String> = fetch(collection.clone()).await?.try_collect().await?;
     let actual: Vec<serde_json::Value> = results
         .iter()
         .map(|result| serde_json::from_str(result).expect("bucket JSON"))
@@ -113,7 +103,10 @@ async fn aggregate_timeline_in_mongodb() -> anyhow::Result<()> {
         doc! { "_id": { "timestamp": 0_i64 }, "count": "1" },
     ] {
         collection.insert_one(invalid.clone()).await?;
-        let result = cache.fetch(collection.clone()).await;
+        let result = fetch(collection.clone())
+            .await?
+            .try_collect::<Vec<_>>()
+            .await;
         assert!(
             matches!(result, Err(crate::error::ClientError::MalformedData)),
             "accepted corrupt bucket: {invalid:?}"
@@ -128,7 +121,92 @@ async fn aggregate_timeline_in_mongodb() -> anyhow::Result<()> {
         ])
         .await?;
     assert!(matches!(
-        cache.fetch(collection.clone()).await,
+        fetch(collection.clone())
+            .await?
+            .try_collect::<Vec<_>>()
+            .await,
+        Err(crate::error::ClientError::MalformedData)
+    ));
+    collection.drop().await?;
+    Ok(())
+}
+
+/// Committed reads select indexed final buckets and never run an aggregation, even concurrently.
+#[tokio::test]
+#[ignore = "requires CLP_TEST_MONGODB_URI"]
+async fn committed_reads_do_not_aggregate_or_publish() -> anyhow::Result<()> {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use clp_rust_utils::timeline::COMMITTED_ID;
+    use mongodb::event::EventHandler;
+    use mongodb::event::command::CommandEvent;
+    use mongodb::options::ClientOptions;
+
+    let uri = std::env::var("CLP_TEST_MONGODB_URI")?;
+    let aggregates = Arc::new(AtomicUsize::new(0));
+    let writes = Arc::new(AtomicUsize::new(0));
+    let observed_aggregates = Arc::clone(&aggregates);
+    let observed_writes = Arc::clone(&writes);
+    let mut options = ClientOptions::parse(uri).await?;
+    options.command_event_handler = Some(EventHandler::callback(move |event| {
+        if let CommandEvent::Started(event) = event {
+            if event.command_name == "aggregate" {
+                observed_aggregates.fetch_add(1, Ordering::SeqCst);
+            }
+            if ["update", "insert", "delete", "findAndModify"]
+                .contains(&event.command_name.as_str())
+            {
+                observed_writes.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }));
+    let client = mongodb::Client::with_options(options)?;
+    let collection = client.database("clp_timeline_tests").collection(&format!(
+        "committed_{}",
+        mongodb::bson::oid::ObjectId::new()
+    ));
+    collection
+        .insert_many([
+            // The API must not read or validate source contributions after successful publication.
+            doc! { "_id": { "timestamp": 0_i64 }, "count": "not a final bucket" },
+            doc! { "_id": 1000_i64, "count": 9_i64 },
+            doc! { "_id": -1000_i64, "count": 7_i64 },
+            doc! { "_id": COMMITTED_ID },
+        ])
+        .await?;
+    writes.store(0, Ordering::SeqCst);
+    let requests = (0..8).map(|_| async {
+        fetch(collection.clone())
+            .await?
+            .try_collect::<Vec<_>>()
+            .await
+    });
+    for buckets in futures::future::try_join_all(requests).await? {
+        assert_eq!(
+            buckets,
+            [
+                r#"{"timestamp":-1000,"count":7}"#,
+                r#"{"timestamp":1000,"count":9}"#
+            ]
+        );
+    }
+    assert_eq!(aggregates.load(Ordering::SeqCst), 0);
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
+    collection
+        .delete_many(doc! { "_id": { "$type": "long" } })
+        .await?;
+    let empty: Vec<String> = fetch(collection.clone()).await?.try_collect().await?;
+    assert_eq!(empty, Vec::<String>::new());
+    collection
+        .insert_one(doc! { "_id": 0_i64, "count": -1_i64 })
+        .await?;
+    assert!(matches!(
+        fetch(collection.clone())
+            .await?
+            .try_collect::<Vec<_>>()
+            .await,
         Err(crate::error::ClientError::MalformedData)
     ));
     collection.drop().await?;

@@ -262,16 +262,36 @@ def cluster(work: Path, spider: Path) -> Iterator[None]:
             log.close()
 
 
-def aggregate_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
-    """Sum per-archive contributions for comparison with the raw-event oracle."""
+def aggregate_rows(
+    rows: list[dict[str, Any]], *, require_committed: bool = False
+) -> dict[str, int]:
+    """Validate archive contributions and, when present, their committed histogram."""
     actual: dict[str, int] = {}
+    final: dict[str, int] = {}
+    committed = False
     for row in rows:
+        identity = row.get("_id")
+        if identity == "__clp_timeline_committed_v1":
+            if set(row) != {"_id"}:
+                message = "unexpected commit marker fields"
+                raise RuntimeError(message)
+            committed = True
+            continue
         if set(row) != {"_id", "count"}:
-            message = "unexpected per-archive contribution fields"
+            message = "unexpected timeline document fields"
             raise RuntimeError(message)
-        timestamp = str(row["_id"]["timestamp"])
-        actual[timestamp] = actual.get(timestamp, 0) + row["count"]
-    return actual
+        if type(identity) is int:
+            final[str(identity)] = row["count"]
+        else:
+            timestamp = str(identity["timestamp"])
+            actual[timestamp] = actual.get(timestamp, 0) + row["count"]
+    if require_committed and not committed:
+        message = "missing timeline commit marker"
+        raise RuntimeError(message)
+    if committed and final != actual:
+        message = "committed histogram differs from archive contributions"
+        raise RuntimeError(message)
+    return final if committed else actual
 
 
 def verify_retry(work: Path, archive_count: int) -> None:
@@ -380,7 +400,7 @@ def run_experiments(args: argparse.Namespace, work: Path, selected: list[dict[st
             f"print(EJSON.stringify(d.getCollection('{job_id}').find().toArray()));",
         )
         write_json(work / f"{label}-rows.json", rows)
-        actual = aggregate_rows(rows)
+        actual = aggregate_rows(rows, require_committed=True)
         matches_reference = actual == json.loads((work / "expected.json").read_text())
         evidence.append(
             {

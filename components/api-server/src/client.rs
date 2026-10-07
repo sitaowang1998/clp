@@ -1,5 +1,4 @@
 use std::pin::Pin;
-use std::sync::Arc;
 
 use async_stream::stream;
 use chrono::DateTime;
@@ -237,7 +236,6 @@ pub struct Client {
     mongodb_client: mongodb::Client,
     sql_pool: sqlx::Pool<sqlx::MySql>,
     config: Config,
-    timeline_cache: Arc<crate::timeline::Cache>,
 }
 
 impl Client {
@@ -273,7 +271,6 @@ impl Client {
             config: config.clone(),
             mongodb_client: mongo_client,
             sql_pool,
-            timeline_cache: Arc::default(),
         })
     }
 
@@ -353,7 +350,7 @@ impl Client {
     /// * Forwards [`Client::get_job_config`]'s return values on failure.
     /// * Forwards [`Client::fetch_results_from_mongo`]'s return values on failure.
     /// * Forwards [`Client::fetch_results_from_s3`]'s return values on failure.
-    /// * Forwards [`crate::timeline::Cache::fetch`]'s return values on failure.
+    /// * Forwards [`crate::timeline::fetch`]'s return values on failure.
     pub async fn fetch_results(
         &self,
         search_job_id: u64,
@@ -400,7 +397,7 @@ impl Client {
                 .mongodb_client
                 .database(&self.config.results_cache.db_name)
                 .collection(&search_job_id.to_string());
-            return self.timeline_cache.fetch(collection).await.map(|stream| {
+            return crate::timeline::fetch(collection).await.map(|stream| {
                 SearchResultStream::Mongo {
                     inner: Either::Left(stream),
                 }
