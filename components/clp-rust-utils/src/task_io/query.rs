@@ -6,6 +6,7 @@ use non_empty_string::NonEmptyString;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::job_config::QueryJobId;
 use crate::job_config::SearchJobConfig;
 
 /// `clp-s` options for a query job.
@@ -106,6 +107,14 @@ pub enum OutputHandle {
     /// A file per archive. Not yet supported by the Spider query flow.
     #[serde(rename = "file")]
     File,
+}
+
+/// The result destination confirmed by a successful timeline archive task.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TimelineTaskOutput {
+    pub query_job_id: QueryJobId,
+    pub output_handle: OutputHandle,
 }
 
 #[cfg(test)]

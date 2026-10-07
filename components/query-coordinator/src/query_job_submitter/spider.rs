@@ -16,6 +16,7 @@ use spider_core::task::ExecutionPolicy;
 use spider_core::task::TaskDescriptor;
 use spider_core::task::TaskGraph;
 use spider_core::task::TdlContext;
+use spider_core::task::TerminationTaskDescriptor;
 use spider_core::task::ValueTypeDescriptor;
 use spider_core::types::id::JobId;
 use spider_core::types::id::ResourceGroupId;
@@ -108,7 +109,7 @@ impl QueryJobSubmitter for SpiderClient {
     }
 }
 
-/// Builds independent archive-search tasks and their positionally ordered external inputs.
+/// Builds archive-search tasks and a final publication task for timeline queries.
 ///
 /// # Returns
 ///
@@ -137,7 +138,21 @@ fn build_query_task_graph(
     const CLP_TDL_PACKAGE_NAME: &str = "clp";
     const QUERY_TASK_FUNC: &str = "query::clp_s_search";
 
-    let mut graph = TaskGraph::new(None, None)?;
+    let timeline = clp_s_query_option
+        .count_by_time_bucket_size_millisecs
+        .is_some();
+    let commit_task = timeline.then(|| TerminationTaskDescriptor {
+        tdl_context: TdlContext {
+            package: CLP_TDL_PACKAGE_NAME.to_owned(),
+            task_func: "query::commit_timeline".to_owned(),
+        },
+        execution_policy: Some(ExecutionPolicy {
+            max_num_retry: 3,
+            max_num_instances: 1,
+            ..ExecutionPolicy::default()
+        }),
+    });
+    let mut graph = TaskGraph::new(commit_task, None)?;
 
     let mut inputs = TaskGraphInputBuilder::new();
     let query_job_id_input = inputs.create_shared_input_payload(&query_job_id)?;
@@ -148,7 +163,12 @@ fn build_query_task_graph(
         graph.insert_task(TaskDescriptor {
             tdl_context: TdlContext {
                 package: CLP_TDL_PACKAGE_NAME.to_owned(),
-                task_func: QUERY_TASK_FUNC.to_owned(),
+                task_func: if timeline {
+                    "query::clp_s_timeline_search"
+                } else {
+                    QUERY_TASK_FUNC
+                }
+                .to_owned(),
             },
             execution_policy: Some(execution_policy),
             inputs: vec![
@@ -162,7 +182,13 @@ fn build_query_task_graph(
                 DataTypeDescriptor::Value(ValueTypeDescriptor::struct_from_name("NonEmptyString")?),
                 DataTypeDescriptor::Value(ValueTypeDescriptor::struct_from_name("OutputHandle")?),
             ],
-            outputs: vec![],
+            outputs: if timeline {
+                vec![DataTypeDescriptor::Value(
+                    ValueTypeDescriptor::struct_from_name("TimelineTaskOutput")?,
+                )]
+            } else {
+                vec![]
+            },
             input_sources: None,
         })?;
         inputs.append_shared_task_input(query_job_id_input)?;
@@ -180,4 +206,65 @@ fn build_query_task_graph(
     }
 
     Ok((graph, inputs.build()))
+}
+
+#[cfg(test)]
+mod tests {
+    use clp_rust_utils::task_io::query::ClpSQueryOption;
+    use clp_rust_utils::task_io::query::OutputHandle;
+    use clp_rust_utils::types::non_empty_string::ExpectedNonEmpty;
+    use non_empty_string::NonEmptyString;
+    use spider_core::task::ExecutionPolicy;
+
+    use super::ArchiveMetadata;
+    use super::build_query_task_graph;
+
+    #[test]
+    fn timeline_graph_commits_after_archive_outputs_and_raw_graph_is_unchanged()
+    -> anyhow::Result<()> {
+        let mut option = ClpSQueryOption {
+            query_string: NonEmptyString::from_static_str("*"),
+            max_num_results: None,
+            begin_timestamp_millisecs: None,
+            end_timestamp_millisecs: None,
+            ignore_case: false,
+            count_by_time_bucket_size_millisecs: Some(1_000),
+        };
+        for timeline in [true, false] {
+            option.count_by_time_bucket_size_millisecs = timeline.then_some(1_000);
+            let (graph, _) = build_query_task_graph(
+                1,
+                &option,
+                &OutputHandle::ResultsCache {
+                    uri: NonEmptyString::from_static_str("mongodb://localhost:27017/test"),
+                },
+                vec![(
+                    ArchiveMetadata {
+                        id: "00000000-0000-0000-0000-000000000001".parse()?,
+                        dataset: None,
+                        size: 0,
+                    },
+                    ExecutionPolicy::default(),
+                )],
+            )?;
+            assert_eq!(graph.get_num_tasks(), 1);
+            assert_eq!(
+                graph.get_task_graph_output_indices().len(),
+                usize::from(timeline)
+            );
+            if let Some(commit) = graph.get_commit_task_descriptor() {
+                assert!(timeline);
+                assert_eq!(commit.tdl_context.task_func, "query::commit_timeline");
+                let policy = commit
+                    .execution_policy
+                    .as_ref()
+                    .expect("commit has an execution policy");
+                assert_eq!(policy.max_num_instances, 1);
+                assert_eq!(policy.max_num_retry, 3);
+            } else {
+                assert!(!timeline);
+            }
+        }
+        Ok(())
+    }
 }

@@ -962,6 +962,8 @@ dependencies = [
  "aws-sdk-s3",
  "aws-sdk-sqs",
  "const_format",
+ "futures",
+ "mongodb",
  "non-empty-string",
  "num_enum",
  "opentelemetry",
@@ -975,6 +977,7 @@ dependencies = [
  "sqlx",
  "strum",
  "thiserror",
+ "tokio",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -992,6 +995,8 @@ dependencies = [
  "aws-config",
  "aws-sdk-s3",
  "clp-rust-utils",
+ "futures",
+ "mongodb",
  "non-empty-string",
  "rmp-serde",
  "secrecy",
@@ -3276,6 +3281,7 @@ dependencies = [
 name = "query-coordinator"
 version = "0.13.1-dev"
 dependencies = [
+ "anyhow",
  "async-trait",
  "clp-rust-utils",
  "const_format",
