@@ -18,6 +18,7 @@ use clp_rust_utils::job_config::QueryJobType;
 use clp_rust_utils::job_config::SearchJobConfig;
 use futures::Stream;
 use futures::StreamExt;
+use futures::future::Either;
 use pin_project_lite::pin_project;
 use serde::Deserialize;
 use serde::Serialize;
@@ -349,6 +350,7 @@ impl Client {
     /// * Forwards [`Client::get_job_config`]'s return values on failure.
     /// * Forwards [`Client::fetch_results_from_mongo`]'s return values on failure.
     /// * Forwards [`Client::fetch_results_from_s3`]'s return values on failure.
+    /// * Forwards [`crate::timeline::fetch`]'s return values on failure.
     pub async fn fetch_results(
         &self,
         search_job_id: u64,
@@ -386,6 +388,22 @@ impl Client {
         let job_config = self.get_job_config(search_job_id).await?;
         let max_num_results = job_config.max_num_results;
 
+        if job_config
+            .aggregation_config
+            .as_ref()
+            .is_some_and(|config| config.count_by_time_bucket_size.is_some())
+        {
+            let collection = self
+                .mongodb_client
+                .database(&self.config.results_cache.db_name)
+                .collection(&search_job_id.to_string());
+            return crate::timeline::fetch(collection).await.map(|stream| {
+                SearchResultStream::Mongo {
+                    inner: Either::Left(stream),
+                }
+            });
+        }
+
         if job_config.aggregation_config.is_some() {
             // Aggregation results are always buffered in MongoDB. Each document is an
             // aggregation record (e.g., a time bucket) rather than a log message, so stream the
@@ -393,7 +411,9 @@ impl Client {
             return self
                 .fetch_results_from_mongo(search_job_id, 0, true, false)
                 .await
-                .map(|s| SearchResultStream::Mongo { inner: s });
+                .map(|s| SearchResultStream::Mongo {
+                    inner: Either::Right(s),
+                });
         }
 
         if job_config.write_to_file {
@@ -412,7 +432,9 @@ impl Client {
 
         self.fetch_results_from_mongo(search_job_id, max_num_results, raw_docs, sorted)
             .await
-            .map(|s| SearchResultStream::Mongo { inner: s })
+            .map(|s| SearchResultStream::Mongo {
+                inner: Either::Right(s),
+            })
     }
 
     /// Submits a cancellation request for a search job.
