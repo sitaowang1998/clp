@@ -26,6 +26,7 @@ use crate::client::ClientError;
 use crate::client::CompressionUsage;
 use crate::client::CompressionUsageParams;
 use crate::client::QueryConfig;
+use crate::client::QueryResultType;
 use crate::client::ValidatedCompressionUsageParams;
 
 /// Factory method to create an Axum router configured with all API routes.
@@ -75,6 +76,7 @@ mod api_doc {
     use super::__path_query_results;
     use super::CompressionUsage;
     use crate::client::CompressionJobStatus;
+    use crate::client::QueryResultType;
 
     #[derive(utoipa::OpenApi)]
     #[openapi(
@@ -84,7 +86,7 @@ mod api_doc {
             contact(name = "YScope")
         ),
         paths(health, query, query_results, cancel_query, compression_usage),
-        components(schemas(CompressionUsage, CompressionJobStatus))
+        components(schemas(CompressionUsage, CompressionJobStatus, QueryResultType))
     )]
     pub struct ApiDoc;
 }
@@ -164,21 +166,60 @@ struct QueryResultsUri {
 }
 
 /// Query parameters for the query results endpoint.
+#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[serde(try_from = "RawQueryResultsParams")]
+enum QueryResultsParams {
+    Search { raw_docs: bool, sorted: bool },
+    Timeline,
+}
+
+impl TryFrom<RawQueryResultsParams> for QueryResultsParams {
+    type Error = ClientError;
+
+    /// # Returns
+    ///
+    /// The validated result parameters on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ClientError::InvalidInput`] if timeline parameters include search-only options.
+    fn try_from(params: RawQueryResultsParams) -> Result<Self, Self::Error> {
+        match params.result_type {
+            Some(QueryResultType::Timeline) => {
+                if params.raw_docs.is_some() || params.sorted.is_some() {
+                    return Err(ClientError::InvalidInput(
+                        "raw_docs and sorted are only supported for search results".to_owned(),
+                    ));
+                }
+                Ok(Self::Timeline)
+            }
+            Some(QueryResultType::Search) | None => Ok(Self::Search {
+                raw_docs: params.raw_docs.unwrap_or(false),
+                sorted: params.sorted.unwrap_or(false),
+            }),
+        }
+    }
+}
+
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
-struct QueryResultsParams {
+struct RawQueryResultsParams {
+    /// Result type to retrieve; omission selects normal search results. Timeline requests must
+    /// omit `raw_docs` and `sorted`, including when their values would be `false`.
+    result_type: Option<QueryResultType>,
+
     /// When `true`, each SSE event contains the raw result document from the results cache
     /// serialized as JSON (including metadata such as the timestamp and the original file path);
-    /// otherwise, each event contains only the log message. Only applies to query jobs whose
-    /// results are buffered in `MongoDB`.
-    #[serde(default)]
-    raw_docs: bool,
+    /// otherwise, each event contains only the log message. Defaults to `false`. Only applies to
+    /// search results buffered in `MongoDB`; must be omitted for timeline results.
+    raw_docs: Option<bool>,
 
-    /// When `true`, results buffered in `MongoDB` are streamed sorted by timestamp descending;
-    /// otherwise, they're streamed in insertion order. Only applies to query jobs whose results
-    /// are buffered in `MongoDB`.
-    #[serde(default)]
-    sorted: bool,
+    /// When `true`, search results buffered in `MongoDB` are streamed sorted by timestamp
+    /// descending; otherwise, they're streamed in insertion order. Defaults to `false`. Must be
+    /// omitted for timeline results, which always use ascending bucket timestamps.
+    sorted: Option<bool>,
 }
 
 #[utoipa::path(
@@ -186,7 +227,7 @@ struct QueryResultsParams {
     path = "/query_results/{search_job_id}",
     description = "Streams the results of a previously submitted query as Server-Sent Events \
         (SSE).",
-    params(QueryResultsParams),
+    params(RawQueryResultsParams),
     responses(
         (
             status = OK,
@@ -207,10 +248,18 @@ async fn query_results(
     Query(params): Query<QueryResultsParams>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, HandlerError>>>, HandlerError> {
     tracing::info!("Fetching results for search job ID: {}", search_job_id);
-    let results_stream = match client
-        .fetch_results(search_job_id, params.raw_docs, params.sorted)
-        .await
-    {
+    let results = match params {
+        QueryResultsParams::Search { raw_docs, sorted } => client.fetch_results(
+            search_job_id,
+            raw_docs,
+            sorted,
+            Some(QueryResultType::Search),
+        ),
+        QueryResultsParams::Timeline => {
+            client.fetch_results(search_job_id, false, false, Some(QueryResultType::Timeline))
+        }
+    };
+    let results_stream = match results.await {
         Ok(stream) => {
             tracing::info!(
                 "Successfully initiated result stream for search job ID {}",
@@ -385,6 +434,51 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
+
+    #[test]
+    fn parses_result_type_options() -> anyhow::Result<()> {
+        for (query, expected) in [
+            (
+                "",
+                QueryResultsParams::Search {
+                    raw_docs: false,
+                    sorted: false,
+                },
+            ),
+            (
+                "?raw_docs=true&sorted=true",
+                QueryResultsParams::Search {
+                    raw_docs: true,
+                    sorted: true,
+                },
+            ),
+            (
+                "?result_type=search&raw_docs=false&sorted=true",
+                QueryResultsParams::Search {
+                    raw_docs: false,
+                    sorted: true,
+                },
+            ),
+            ("?result_type=timeline", QueryResultsParams::Timeline),
+        ] {
+            let uri = format!("/query_results/42{query}").parse()?;
+            let Query(params) = Query::<QueryResultsParams>::try_from_uri(&uri)?;
+            assert_eq!(params, expected);
+        }
+        for query in [
+            "result_type=unknown",
+            "result_type=timeline&raw_docs=false",
+            "result_type=timeline&raw_docs=true",
+            "result_type=timeline&sorted=false",
+            "result_type=timeline&sorted=true",
+        ] {
+            let uri = format!("/query_results/42?{query}").parse()?;
+            let error = Query::<QueryResultsParams>::try_from_uri(&uri)
+                .expect_err("invalid result options must be rejected");
+            assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{query}");
+        }
+        Ok(())
+    }
 
     /// Builds a minimal Axum app that validates compression usage params via
     /// [`TryFrom<CompressionUsageParams>`] and returns the resolved

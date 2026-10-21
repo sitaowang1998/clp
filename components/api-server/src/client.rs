@@ -17,9 +17,13 @@ use clp_rust_utils::job_config::QUERY_JOBS_TABLE_NAME;
 use clp_rust_utils::job_config::QueryJobStatus;
 use clp_rust_utils::job_config::QueryJobType;
 use clp_rust_utils::job_config::SearchJobConfig;
+use clp_rust_utils::timeline::Bucket;
+use clp_rust_utils::timeline::COMMIT_MARKER_ID;
 use clp_rust_utils::types::PositiveI64;
 use futures::Stream;
 use futures::StreamExt;
+use mongodb::bson::Document;
+use mongodb::bson::doc;
 use pin_project_lite::pin_project;
 use serde::Deserialize;
 use serde::Serialize;
@@ -233,6 +237,41 @@ impl From<QueryConfig> for SearchJobConfig {
     }
 }
 
+/// The kind of query results to retrieve.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryResultType {
+    Search,
+    Timeline,
+}
+
+impl QueryResultType {
+    /// # Returns
+    ///
+    /// The requested result type, or search when omitted, on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ClientError::InvalidInput`] if timeline results are requested without count-by-time
+    ///   configuration.
+    fn resolve(requested: Option<Self>, job_config: &SearchJobConfig) -> Result<Self, ClientError> {
+        let has_timeline = job_config
+            .aggregation_config
+            .as_ref()
+            .and_then(|config| config.count_by_time_bucket_size)
+            .is_some();
+        match requested {
+            Some(Self::Timeline) if !has_timeline => Err(ClientError::InvalidInput(
+                "query job has no timeline configuration".to_owned(),
+            )),
+            Some(result_type) => Ok(result_type),
+            None => Ok(Self::Search),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Client {
     #[allow(clippy::struct_field_names)]
@@ -331,20 +370,27 @@ impl Client {
     ///
     /// * [`SearchResultStream::File`] if the job's results are stored in files.
     /// * [`SearchResultStream::Mongo`] if the job's results are stored in `MongoDB`.
+    /// * [`SearchResultStream::S3`] if the job's results are stored in S3.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
+    /// * [`ClientError::QueryNotSucceeded`] if the job failed, was killed, or is cancelling or
+    ///   cancelled.
     /// * Forwards [`Client::get_status`]'s return values on failure.
     /// * Forwards [`Client::get_job_config`]'s return values on failure.
+    /// * Forwards [`Client::fetch_results_from_file`]'s return values on failure.
     /// * Forwards [`Client::fetch_results_from_mongo`]'s return values on failure.
     /// * Forwards [`Client::fetch_results_from_s3`]'s return values on failure.
+    /// * Forwards [`QueryResultType::resolve`]'s return values on failure.
+    /// * Forwards [`Self::fetch_timeline_results`]'s return values on failure.
     pub async fn fetch_results(
         &self,
         search_job_id: u64,
         raw_docs: bool,
         sorted: bool,
+        result_type: Option<QueryResultType>,
     ) -> Result<
         SearchResultStream<
             impl Stream<Item = Result<String, ClientError>> + use<>,
@@ -377,14 +423,13 @@ impl Client {
         let job_config = self.get_job_config(search_job_id).await?;
         let max_num_results = job_config.max_num_results;
 
-        if job_config.aggregation_config.is_some() {
-            // Aggregation results are always buffered in MongoDB. Each document is an aggregation
-            // record (e.g., a time bucket) rather than a log message, so stream the documents whole
-            // and without a limit.
+        if QueryResultType::resolve(result_type, &job_config)? == QueryResultType::Timeline {
             return self
-                .fetch_results_from_mongo(search_job_id, None, true, false)
+                .fetch_timeline_results(search_job_id)
                 .await
-                .map(|s| SearchResultStream::Mongo { inner: s });
+                .map(|stream| SearchResultStream::Mongo {
+                    inner: stream.left_stream(),
+                });
         }
 
         if job_config.write_to_file {
@@ -403,7 +448,9 @@ impl Client {
 
         self.fetch_results_from_mongo(search_job_id, max_num_results, raw_docs, sorted)
             .await
-            .map(|s| SearchResultStream::Mongo { inner: s })
+            .map(|stream| SearchResultStream::Mongo {
+                inner: stream.right_stream(),
+            })
     }
 
     /// Submits a cancellation request for a search job.
@@ -837,6 +884,44 @@ impl Client {
             .as_ref()
             .expect("api_server configuration is missing")
     }
+
+    /// # Returns
+    ///
+    /// A stream of committed timeline buckets as JSON, ordered by timestamp, on success.
+    /// Stream items contain cursor errors when reading fails, [`ClientError::MalformedData`]
+    /// when [`Bucket::try_from_document`] rejects a document, or errors forwarded from
+    /// [`TimelineBucket::try_from`] and [`serde_json::to_string`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ClientError::MalformedData`] if the completion marker is absent.
+    /// * Forwards [`mongodb::Collection::find_one`]'s return values on failure.
+    /// * Forwards [`mongodb::Collection::find`]'s return values on failure.
+    async fn fetch_timeline_results(
+        &self,
+        search_job_id: u64,
+    ) -> Result<impl Stream<Item = Result<String, ClientError>> + use<>, ClientError> {
+        let database = self
+            .mongodb_client
+            .database(&self.config.results_cache.db_name);
+        let collection = database.collection::<Document>(&format!("{search_job_id}-timeline"));
+        collection
+            .find_one(doc! { "_id": COMMIT_MARKER_ID })
+            .await?
+            .ok_or(ClientError::MalformedData)?;
+        let cursor = collection
+            .find(doc! { "_id": { "$type": "number" } })
+            .sort(doc! { "_id": 1 })
+            .hint(mongodb::options::Hint::Keys(doc! { "_id": 1 }))
+            .await?;
+        Ok(cursor.map(|document| {
+            let bucket =
+                Bucket::try_from_document(&document?).map_err(|_| ClientError::MalformedData)?;
+            serde_json::to_string(&TimelineBucket::try_from(bucket)?).map_err(Into::into)
+        }))
+    }
 }
 
 pin_project! {
@@ -885,6 +970,39 @@ where
     }
 }
 
+/// A timeline bucket whose integer fields are exactly representable by JavaScript numbers.
+#[derive(Serialize)]
+struct TimelineBucket {
+    timestamp: i64,
+    count: i64,
+}
+
+impl TryFrom<Bucket> for TimelineBucket {
+    type Error = ClientError;
+
+    /// # Returns
+    ///
+    /// The serializable bucket on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`ClientError::MalformedData`] if either field exceeds JavaScript's safe-integer range.
+    fn try_from(bucket: Bucket) -> Result<Self, Self::Error> {
+        const MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
+        if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&bucket.timestamp())
+            || bucket.count() > MAX_SAFE_INTEGER
+        {
+            return Err(ClientError::MalformedData);
+        }
+        Ok(Self {
+            timestamp: bucket.timestamp(),
+            count: bucket.count(),
+        })
+    }
+}
+
 /// Applies an optional limit to a search result stream.
 ///
 /// # Type Parameters
@@ -923,6 +1041,61 @@ mod tests {
     use std::str::FromStr;
 
     use super::*;
+
+    #[test]
+    fn resolves_requested_results_and_defaults_to_search() -> anyhow::Result<()> {
+        for bucket_size in [None, Some(1000)] {
+            let job_config = SearchJobConfig {
+                aggregation_config: bucket_size.map(|width| AggregationConfig {
+                    count_by_time_bucket_size: Some(width),
+                    ..AggregationConfig::default()
+                }),
+                ..SearchJobConfig::default()
+            };
+            for requested in [None, Some(QueryResultType::Search)] {
+                assert_eq!(
+                    QueryResultType::resolve(requested, &job_config)?,
+                    QueryResultType::Search,
+                    "requested={requested:?}, bucket_size={bucket_size:?}"
+                );
+            }
+            let timeline = QueryResultType::resolve(Some(QueryResultType::Timeline), &job_config);
+            if bucket_size.is_some() {
+                assert_eq!(timeline?, QueryResultType::Timeline);
+            } else {
+                assert!(matches!(timeline, Err(ClientError::InvalidInput(_))));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn serializes_timeline_integers_without_bson_wrappers() -> anyhow::Result<()> {
+        let max_safe_integer = (1_i64 << 53) - 1;
+        for timestamp in [-max_safe_integer, -1, 0, 1, max_safe_integer] {
+            let bucket =
+                Bucket::try_from_document(&doc! { "_id": timestamp, "count": max_safe_integer })?;
+            let serialized = serde_json::to_string(&TimelineBucket::try_from(bucket)?)?;
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&serialized)?,
+                serde_json::json!({
+                    "timestamp": timestamp, "count": max_safe_integer,
+                })
+            );
+        }
+        for (timestamp, count) in [
+            (-max_safe_integer - 1, 0),
+            (max_safe_integer + 1, 0),
+            (0, max_safe_integer + 1),
+        ] {
+            let bucket = Bucket::try_from_document(&doc! { "_id": timestamp, "count": count })?;
+            assert!(matches!(
+                TimelineBucket::try_from(bucket),
+                Err(ClientError::MalformedData)
+            ));
+        }
+        Ok(())
+    }
 
     #[tokio::test]
     async fn query_bucket_size_boundaries() -> anyhow::Result<()> {

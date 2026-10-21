@@ -25,8 +25,8 @@ impl Bucket {
     ///
     /// * [`Error::InvalidSourceContribution`] if the aggregate flags invalid source contributions.
     /// * [`Error::CountOverflow`] if the sum of valid source counts overflows a BSON integer.
-    /// * [`Error::NegativeCount`] if the count is negative.
     /// * Forwards [`get_integer_field`]'s return values on failure.
+    /// * Forwards [`Self::try_from_document`]'s return values on failure.
     pub fn try_from_aggregation_document(document: &Document) -> Result<Self, Error> {
         if get_integer_field(document, "invalid")? != 0 {
             return Err(Error::InvalidSourceContribution);
@@ -36,6 +36,21 @@ impl Bucket {
         if matches!(document.get("count"), Some(Bson::Double(_))) {
             return Err(Error::CountOverflow);
         }
+        Self::try_from_document(document)
+    }
+
+    /// # Returns
+    ///
+    /// A bucket with the document's integer `_id` timestamp and nonnegative integer `count`
+    /// on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::NegativeCount`] if the count is negative.
+    /// * Forwards [`get_integer_field`]'s return values on failure.
+    pub fn try_from_document(document: &Document) -> Result<Self, Error> {
         let bucket = Self {
             timestamp: get_integer_field(document, "_id")?,
             count: get_integer_field(document, "count")?,
@@ -96,6 +111,23 @@ mod tests {
 
     use super::Bucket;
     use super::Error;
+
+    #[test]
+    fn validates_bucket_documents() -> anyhow::Result<()> {
+        let bucket = Bucket::try_from_document(&doc! { "_id": -1000_i64, "count": 2_i32 })?;
+        assert_eq!(bucket.timestamp(), -1000);
+        assert_eq!(bucket.count(), 2);
+        for document in [
+            doc! { "_id": 1, "count": -1 },
+            doc! { "_id": 1.0, "count": 1 },
+            doc! { "_id": 1, "count": 1.0 },
+            doc! { "_id": 1 },
+            doc! { "count": 1 },
+        ] {
+            assert!(Bucket::try_from_document(&document).is_err(), "{document}");
+        }
+        Ok(())
+    }
 
     #[test]
     fn accepts_integer_types_and_boundaries() -> anyhow::Result<()> {
