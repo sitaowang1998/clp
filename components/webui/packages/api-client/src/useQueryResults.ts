@@ -7,6 +7,7 @@ import {
 import {EventSourceParserStream} from "eventsource-parser/stream";
 
 import type {ApiClient} from "./index.js";
+import type {components} from "./schema.js";
 
 
 /**
@@ -36,28 +37,31 @@ interface UseQueryResultsOptions<T> {
 
     /**
      * Called when the stream fails. Not called when the stream is aborted (e.g., on unmount or
-     * when `jobId` changes).
+     * when `jobId` or `resultType` changes).
      */
     onError?: (err: unknown) => void;
 
     /**
      * Whether to request raw result documents (including metadata) rather than just log
-     * messages. Only applies to query jobs whose results are buffered in MongoDB.
+     * messages. Only applies to search results buffered in MongoDB; omit for timeline results.
      */
     rawDocs?: boolean;
 
+    resultType?: components["schemas"]["QueryResultType"];
+
     /**
      * Whether to request results sorted by timestamp descending from the API server. Only
-     * applies to query jobs whose results are buffered in MongoDB. When `false`, the server
-     * streams results in insertion order and any `compareFn` is still applied client-side.
+     * applies to search results buffered in MongoDB; omit for timeline results. When `false`,
+     * the server streams results in insertion order and any `compareFn` is still applied
+     * client-side.
      */
     sorted?: boolean;
 }
 
 /**
  * Custom hook to reactively stream the results of a query job from the API server's Server-Sent
- * Events (SSE) endpoint. Whenever `jobId` changes, any in-flight stream is aborted and a new one
- * is started.
+ * Events (SSE) endpoint. Whenever `jobId` or `options.resultType` changes, any in-flight stream
+ * is aborted and a new one is started.
  *
  * @param apiClient The API server client.
  * @param jobId The query job ID, or `null` if there is no active job.
@@ -72,6 +76,7 @@ const useQueryResults = <T>(
     options: UseQueryResultsOptions<T>
 ): T[] | null => {
     const [results, setResults] = useState<T[] | null>(null);
+    const {resultType} = options;
 
     // Keep the latest options in a ref so that the stream isn't restarted when callers pass
     // inline callbacks.
@@ -110,14 +115,22 @@ const useQueryResults = <T>(
         };
 
         const streamResults = async (): Promise<void> => {
+            const {rawDocs, sorted} = optionsRef.current;
             // eslint-disable-next-line new-cap
             const {response} = await apiClient.GET("/query_results/{search_job_id}", {
                 headers: {Accept: "text/event-stream"},
                 params: {
                     path: {search_job_id: Number(jobId)},
                     query: {
-                        raw_docs: optionsRef.current.rawDocs ?? false,
-                        sorted: optionsRef.current.sorted ?? false,
+                        ...("undefined" === typeof rawDocs ?
+                            {} :
+                            {raw_docs: rawDocs}),
+                        ...("undefined" === typeof resultType ?
+                            {} :
+                            {result_type: resultType}),
+                        ...("undefined" === typeof sorted ?
+                            {} :
+                            {sorted}),
                     },
                 },
                 parseAs: "stream",
@@ -166,6 +179,7 @@ const useQueryResults = <T>(
     }, [
         apiClient,
         jobId,
+        resultType,
     ]);
 
     return results;

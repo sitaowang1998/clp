@@ -176,6 +176,11 @@ export interface components {
              */
             time_range_end_millisecs?: number | null;
         };
+        /**
+         * @description The kind of query results to retrieve.
+         * @enum {string}
+         */
+        QueryResultType: "search" | "timeline";
         QueryResultsUri: {
             /** @description The uri to get the query results. */
             query_results_uri: string;
@@ -338,16 +343,21 @@ export interface operations {
         parameters: {
             query?: {
                 /**
+                 * @description Result type to retrieve; omission selects normal search results. Timeline requests must
+                 *     omit `raw_docs` and `sorted`, including when their values would be `false`.
+                 */
+                result_type?: components["schemas"]["QueryResultType"];
+                /**
                  * @description When `true`, each SSE event contains the raw result document from the results cache
                  *     serialized as JSON (including metadata such as the timestamp and the original file path);
-                 *     otherwise, each event contains only the log message. Only applies to query jobs whose
-                 *     results are buffered in `MongoDB`.
+                 *     otherwise, each event contains only the log message. Defaults to `false`. Only applies to
+                 *     search results buffered in `MongoDB`; must be omitted for timeline results.
                  */
                 raw_docs?: boolean;
                 /**
-                 * @description When `true`, results buffered in `MongoDB` are streamed sorted by timestamp descending;
-                 *     otherwise, they're streamed in insertion order. Only applies to query jobs whose results
-                 *     are buffered in `MongoDB`.
+                 * @description When `true`, search results buffered in `MongoDB` are streamed sorted by timestamp
+                 *     descending; otherwise, they're streamed in insertion order. Defaults to `false`. Must be
+                 *     omitted for timeline results, which always use ascending bucket timestamps.
                  */
                 sorted?: boolean;
             };

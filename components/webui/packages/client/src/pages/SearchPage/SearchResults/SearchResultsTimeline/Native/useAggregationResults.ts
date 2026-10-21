@@ -19,8 +19,7 @@ const useAggregationResults = () => {
             console.error("Failed to stream aggregation results:", err);
         },
         parse: (data) => JSON.parse(data) as TimelineBucket,
-        rawDocs: true,
-        sorted: false,
+        resultType: "timeline",
     });
 };
 

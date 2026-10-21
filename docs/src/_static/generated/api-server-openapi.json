@@ -163,9 +163,18 @@
         "operationId": "query_results",
         "parameters": [
           {
+            "name": "result_type",
+            "in": "query",
+            "description": "Result type to retrieve; omission selects normal search results. Timeline requests must\nomit `raw_docs` and `sorted`, including when their values would be `false`.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/QueryResultType"
+            }
+          },
+          {
             "name": "raw_docs",
             "in": "query",
-            "description": "When `true`, each SSE event contains the raw result document from the results cache\nserialized as JSON (including metadata such as the timestamp and the original file path);\notherwise, each event contains only the log message. Only applies to query jobs whose\nresults are buffered in `MongoDB`.",
+            "description": "When `true`, each SSE event contains the raw result document from the results cache\nserialized as JSON (including metadata such as the timestamp and the original file path);\notherwise, each event contains only the log message. Defaults to `false`. Only applies to\nsearch results buffered in `MongoDB`; must be omitted for timeline results.",
             "required": false,
             "schema": {
               "type": "boolean"
@@ -174,7 +183,7 @@
           {
             "name": "sorted",
             "in": "query",
-            "description": "When `true`, results buffered in `MongoDB` are streamed sorted by timestamp descending;\notherwise, they're streamed in insertion order. Only applies to query jobs whose results\nare buffered in `MongoDB`.",
+            "description": "When `true`, search results buffered in `MongoDB` are streamed sorted by timestamp\ndescending; otherwise, they're streamed in insertion order. Defaults to `false`. Must be\nomitted for timeline results, which always use ascending bucket timestamps.",
             "required": false,
             "schema": {
               "type": "boolean"
@@ -438,6 +447,14 @@
           }
         },
         "additionalProperties": false
+      },
+      "QueryResultType": {
+        "type": "string",
+        "description": "The kind of query results to retrieve.",
+        "enum": [
+          "search",
+          "timeline"
+        ]
       },
       "QueryResultsUri": {
         "type": "object",
