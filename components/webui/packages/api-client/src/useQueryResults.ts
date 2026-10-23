@@ -117,10 +117,10 @@ const useQueryResults = <T>(
         const streamResults = async (): Promise<void> => {
             const {rawDocs, sorted} = optionsRef.current;
             // eslint-disable-next-line new-cap
-            const {response} = await apiClient.GET("/query_results/{search_job_id}", {
+            const {response} = await apiClient.GET("/query_results/{query_job_id}", {
                 headers: {Accept: "text/event-stream"},
                 params: {
-                    path: {search_job_id: Number(jobId)},
+                    path: {query_job_id: Number(jobId)},
                     query: {
                         ...("undefined" === typeof rawDocs ?
                             {} :
