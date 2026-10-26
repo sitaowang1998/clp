@@ -67,6 +67,7 @@ impl Default for Config {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(default)]
 pub struct SpiderTaskExecutorConfig {
+    pub logs_input: LogsInput,
     pub package: Package,
     pub archive_output: ArchiveOutput,
     pub tmp_directory: String,
@@ -106,6 +107,9 @@ impl SpiderTaskExecutorConfig {
 impl Default for SpiderTaskExecutorConfig {
     fn default() -> Self {
         Self {
+            logs_input: LogsInput::Fs {
+                config: FsIngestion::default(),
+            },
             package: Package::default(),
             database: Database::default(),
             archive_output: ArchiveOutput::default(),

@@ -7,6 +7,9 @@ use spider_core::types::resource_group::ExternalResourceGroupCredentialsError;
 /// Errors returned by the compression coordinator.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("filesystem input failure: {0}")]
+    Filesystem(#[from] std::io::Error),
+
     #[error(
         "duplicate S3 object metadata IDs {ids:?} requested for ingestion job {ingestion_job_id}"
     )]
@@ -43,7 +46,7 @@ pub enum Error {
     #[error("no S3 object metadata was requested for ingestion job {0}")]
     NoS3ObjectMetadata(IngestionJobId),
 
-    #[error("no S3 objects were partitioned into compression task inputs")]
+    #[error("no inputs were partitioned into compression task inputs")]
     NoTaskInputs,
 
     #[error("failed to load the resource group credentials: {0}")]

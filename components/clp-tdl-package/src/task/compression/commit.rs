@@ -26,7 +26,6 @@ use crate::common::spider_task_executor_config;
 ///
 /// Returns an error if:
 ///
-/// * `archives` is empty.
 /// * No CLP compression job exists for `spider_job_id`.
 /// * The CLP compression job is in a state other than [`CompressionJobStatus::Running`] or
 ///   [`CompressionJobStatus::Succeeded`].
@@ -51,9 +50,6 @@ pub(super) async fn commit(
         spider_job_id = spider_job_id.get(),
         "CLP compression commit task started."
     );
-    if archives.is_empty() {
-        anyhow::bail!("commit received no archives to publish");
-    }
     let total_uncompressed_size: i64 = archives.iter().map(|a| a.uncompressed_size).sum();
     let total_compressed_size: i64 = archives.iter().map(|a| a.size).sum();
 
@@ -190,9 +186,9 @@ async fn mark_job_succeeded(
     // NOTE: `duration` (seconds) is derived from the DB clock so it stays consistent with the DB's
     // time.
     const QUERY: &str = formatcp!(
-        "UPDATE {COMPRESSION_JOBS_TABLE_NAME} SET status = ?, uncompressed_size = ?, \
-         compressed_size = ?, duration = TIMESTAMPDIFF(MICROSECOND, start_time, \
-         CURRENT_TIMESTAMP(3)) / 1000000 WHERE id = ? AND status = ?"
+        "UPDATE {COMPRESSION_JOBS_TABLE_NAME} SET status = ?, num_tasks_completed = num_tasks, \
+         uncompressed_size = ?, compressed_size = ?, duration = TIMESTAMPDIFF(MICROSECOND, \
+         start_time, CURRENT_TIMESTAMP(3)) / 1000000 WHERE id = ? AND status = ?"
     );
     let query_result = sqlx::query(QUERY)
         .bind(CompressionJobStatus::Succeeded)

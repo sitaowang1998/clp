@@ -8,6 +8,7 @@ x-clp-spider-worker-defaults: &clp_spider_worker_defaults
       target: "/etc/clp-config.yaml"
       read_only: true
     - "${CLP_ARCHIVE_OUTPUT_DIR_HOST:-empty}:/var/data/archives"
+    - "${CLP_LOGS_INPUT_DIR_HOST:-empty}:${CLP_LOGS_INPUT_DIR_CONTAINER:-/mnt/logs}:ro"
     - "${CLP_STAGED_ARCHIVE_OUTPUT_DIR_HOST:-empty}:/var/data/staged-archives"
 
 x-clp-spider-worker-env-defaults: &clp_spider_worker_env_defaults

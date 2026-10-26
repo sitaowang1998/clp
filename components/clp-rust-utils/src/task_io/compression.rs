@@ -1,4 +1,4 @@
-//! Protocol types exchanged with the Spider (Huntsman) tasks that run CLP S3 compression jobs.
+//! Protocol types exchanged with the Spider (Huntsman) tasks that run CLP compression jobs.
 
 use non_empty_string::NonEmptyString;
 use serde::Deserialize;
@@ -15,6 +15,34 @@ pub struct ClpSCompressionOption {
     pub compression_level: u8,
     pub timestamp_key: Option<String>,
     pub unstructured: bool,
+}
+
+/// Input manifest for a compression task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "source", rename_all = "snake_case")]
+pub enum CompressionInputSource {
+    Fs(FsInputSource),
+    S3(S3InputSource),
+}
+
+impl CompressionInputSource {
+    /// # Returns
+    ///
+    /// The file paths or object keys assigned to the task.
+    #[must_use]
+    pub fn paths(&self) -> &[String] {
+        match self {
+            Self::Fs(source) => &source.file_paths,
+            Self::S3(source) => &source.object_keys,
+        }
+    }
+}
+
+/// Filesystem entries assigned to one compression task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FsInputSource {
+    pub file_paths: Vec<String>,
+    pub empty_directories: Vec<String>,
 }
 
 /// Input source for a compression task.

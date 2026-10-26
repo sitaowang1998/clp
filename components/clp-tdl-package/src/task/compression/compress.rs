@@ -1,4 +1,4 @@
-//! The `clp-s` compression worker that turns an S3 input source into archives.
+//! The `clp-s` compression worker that turns input manifests into durable archives.
 
 use std::ffi::OsString;
 use std::io::BufRead;
@@ -14,13 +14,18 @@ use clp_rust_utils::aws::AWS_DEFAULT_REGION;
 use clp_rust_utils::clp_config::S3Config;
 use clp_rust_utils::clp_config::package::config::ArchiveOutputStorage;
 use clp_rust_utils::clp_config::package::config::Database;
+use clp_rust_utils::clp_config::package::config::LogsInput;
 use clp_rust_utils::clp_config::package::config::SpiderTaskExecutorConfig;
+use clp_rust_utils::clp_config::package::config::StorageEngine;
 use clp_rust_utils::dataset::DatasetName;
+use clp_rust_utils::fs::resolve_input_path;
 use clp_rust_utils::s3::create_new_client;
 use clp_rust_utils::s3::generate_s3_url;
 use clp_rust_utils::task_io::compression::ArchiveMetadata;
 use clp_rust_utils::task_io::compression::ClpSCompressionOption;
+use clp_rust_utils::task_io::compression::CompressionInputSource;
 use clp_rust_utils::task_io::compression::CompressionTaskOutput;
+use clp_rust_utils::task_io::compression::FsInputSource;
 use clp_rust_utils::task_io::compression::S3InputSource;
 use clp_rust_utils::types::ArchiveId;
 use non_empty_string::NonEmptyString;
@@ -30,11 +35,7 @@ use crate::common::runtime;
 use crate::task::utils::clp_binary_path;
 use crate::task::utils::s3_credential_env;
 
-/// Compresses the given S3 objects into archives, uploads them to S3, and returns their metadata
-/// for the commit task.
-///
-/// A pure worker function called by a spider-tdl task wrapper, which formats any returned
-/// `anyhow::Error` into a user-space TDL error.
+/// Compresses an input manifest and returns the metadata of its durable archives.
 ///
 /// # Returns
 ///
@@ -44,11 +45,12 @@ use crate::task::utils::s3_credential_env;
 ///
 /// Returns an error if:
 ///
+/// * The configured storage engine is not [`StorageEngine::ClpS`].
 /// * A spawned archive finisher panics.
-/// * Forwards [`build_s3_logs_list`]'s return values on failure.
+/// * Forwards [`PreparedInput::new`]'s return values on failure.
+/// * Forwards [`std::fs::create_dir_all`]'s return values on failure.
+/// * Forwards [`PreparedOutput::new`]'s return values on failure.
 /// * Forwards [`std::fs::write`]'s return values on failure.
-/// * Forwards [`s3_credential_env`]'s return values on failure.
-/// * Forwards [`extract_s3_output_config`]'s return values on failure.
 /// * Forwards [`prepare_clp_s_input`]'s return values on failure.
 /// * Forwards [`run_clp_s`]'s return values on failure.
 /// * Forwards [`ArchiveFinisher::finish`]'s return values on failure.
@@ -57,8 +59,12 @@ pub(super) fn compress(
     config: &SpiderTaskExecutorConfig,
     clp_s_option: &ClpSCompressionOption,
     dataset: DatasetName,
-    input_source: S3InputSource,
+    input_source: &CompressionInputSource,
 ) -> anyhow::Result<CompressionTaskOutput> {
+    anyhow::ensure!(
+        config.package.storage_engine == StorageEngine::ClpS,
+        "compression tasks require the clp-s storage engine"
+    );
     let clp_home = clp_home();
     let list_path = config.abs_tmp_directory(clp_home).join(format!(
         "compression-{}-{}-{}-log-paths.txt",
@@ -70,53 +76,47 @@ pub(super) fn compress(
         task_id = % ctx.task_id,
         task_instance_id = % ctx.task_instance_id,
         list_path = % list_path.display(),
-        "CLP S3 compression task started.",
+        "CLP compression task started.",
     );
 
     let mut tmp_file_deleter = TmpFileDeleter::new();
 
-    std::fs::write(&list_path, build_s3_logs_list(&input_source)?)
-        .with_context(|| format!("failed to write S3 logs list to {}", list_path.display()))
-        .inspect_err(|e| {
-            tracing::error!(
-                error = % e,
-                list_path = % list_path.display(),
-                "Failed to write S3 logs list to tmp directory."
-            );
-        })?;
+    std::fs::create_dir_all(config.abs_tmp_directory(clp_home))?;
+    let runtime = runtime();
+    let PreparedInput {
+        logs_list,
+        credential_env,
+        s3_input,
+    } = PreparedInput::new(input_source, config, &runtime)?;
+    if logs_list.is_empty() {
+        return Ok(CompressionTaskOutput {
+            dataset,
+            archives: Vec::new(),
+        });
+    }
+    std::fs::write(&list_path, logs_list)
+        .with_context(|| format!("failed to write input manifest {}", list_path.display()))?;
     tmp_file_deleter.add(list_path.clone());
 
-    let runtime = runtime();
-    let S3InputSource {
-        region_code,
-        aws_authentication,
-        ..
-    } = input_source;
-    let input_region = region_code
-        .as_ref()
-        .map_or(AWS_DEFAULT_REGION, NonEmptyString::as_str);
-    let credential_env = s3_credential_env(&runtime, input_region, &aws_authentication)?;
-
-    let s3_config = extract_s3_output_config(config)?;
-    let archive_dir = config
-        .abs_archive_output_staging(clp_home)
-        .join(dataset.as_str());
+    let PreparedOutput {
+        archive_dir,
+        storage,
+    } = PreparedOutput::new(ctx, config, &dataset, &runtime)?;
+    tmp_file_deleter.add(archive_dir.clone());
+    let single_file_archive = matches!(storage, ArchiveStorage::S3 { .. });
 
     let clp_s_bin = clp_binary_path(clp_home, "clp-s");
     let indexer_bin = clp_binary_path(clp_home, "indexer");
 
     let (clp_s_input, clp_s_credential_env) = prepare_clp_s_input(
         ctx,
-        clp_home,
         config,
         clp_s_option,
         &list_path,
         credential_env,
+        s3_input,
         &mut tmp_file_deleter,
     )?;
-
-    let client = build_s3_client(&runtime, s3_config);
-    let bucket = s3_config.bucket.to_string();
 
     let mut archives = Vec::new();
     let mut finishers = tokio::task::JoinSet::new();
@@ -124,15 +124,17 @@ pub(super) fn compress(
     let archive_dir_clone = archive_dir.clone();
     let archive_callback = |archive: ArchiveMetadata| {
         let archive_staging_path = archive_dir_clone.join(archive.id.to_string());
-        tmp_file_deleter.add(archive_staging_path.clone());
+        if finishers.len() >= 4 {
+            runtime.block_on(async {
+                if let Some(result) = finishers.join_next().await {
+                    result.context("archive finisher panicked")??;
+                }
+                Ok::<(), anyhow::Error>(())
+            })?;
+        }
         finishers.spawn_on(
             ArchiveFinisher {
-                client: client.clone(),
-                bucket: bucket.clone(),
-                key: config
-                    .archive_output
-                    .dataset_archive_object_key(&dataset, &archive.id)
-                    .into_inner(),
+                storage: storage.clone(),
                 indexer_bin: indexer_bin.clone(),
                 database: config.database.clone(),
                 dataset: dataset.clone(),
@@ -152,6 +154,7 @@ pub(super) fn compress(
         clp_s_option,
         &clp_s_input,
         &clp_s_credential_env,
+        single_file_archive,
         archive_callback,
     );
 
@@ -166,9 +169,67 @@ pub(super) fn compress(
         job_id = % ctx.job_id,
         task_id = % ctx.task_id,
         task_instance_id = % ctx.task_instance_id,
-        "CLP S3 compression task completed successfully.",
+        "CLP compression task completed successfully.",
     );
     Ok(CompressionTaskOutput { dataset, archives })
+}
+
+struct PreparedInput {
+    logs_list: String,
+    credential_env: Vec<(&'static str, String)>,
+    s3_input: bool,
+}
+
+impl PreparedInput {
+    /// Validates an input manifest and resolves its subprocess credentials.
+    ///
+    /// # Returns
+    ///
+    /// The prepared manifest on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Filesystem input is not configured for a filesystem manifest.
+    /// * Forwards [`Path::canonicalize`]'s return values on failure.
+    /// * Forwards [`build_fs_logs_list`]'s return values on failure.
+    /// * Forwards [`build_s3_logs_list`]'s return values on failure.
+    /// * Forwards [`s3_credential_env`]'s return values on failure.
+    fn new(
+        input_source: &CompressionInputSource,
+        config: &SpiderTaskExecutorConfig,
+        runtime: &tokio::runtime::Handle,
+    ) -> anyhow::Result<Self> {
+        let (logs_list, credential_env, s3_input) = match input_source {
+            CompressionInputSource::Fs(source) => {
+                let LogsInput::Fs {
+                    config: input_config,
+                } = &config.logs_input
+                else {
+                    anyhow::bail!("filesystem tasks require filesystem logs_input configuration");
+                };
+                let root = Path::new(&input_config.directory).canonicalize()?;
+                (build_fs_logs_list(source, &root)?, Vec::new(), false)
+            }
+            CompressionInputSource::S3(source) => {
+                let input_region = source
+                    .region_code
+                    .as_ref()
+                    .map_or(AWS_DEFAULT_REGION, NonEmptyString::as_str);
+                (
+                    build_s3_logs_list(source)?,
+                    s3_credential_env(runtime, input_region, &source.aws_authentication)?,
+                    true,
+                )
+            }
+        };
+        Ok(Self {
+            logs_list,
+            credential_env,
+            s3_input,
+        })
+    }
 }
 
 /// Buffers tmp paths and deletes them when dropped, warning (rather than failing) on any deletion
@@ -223,15 +284,79 @@ enum ClpSInput {
     /// A `--files-from` list file of S3 object URLs; clp-s reads the objects directly from S3.
     FilesFrom(PathBuf),
 
+    LocalFilesFrom(PathBuf),
+
     /// A local directory of converted logs files passed positionally. clp-s reads the local files.
     Directory(PathBuf),
 }
 
+#[derive(Clone)]
+enum ArchiveStorage {
+    Fs {
+        directory: PathBuf,
+    },
+    S3 {
+        client: aws_sdk_s3::Client,
+        bucket: String,
+        prefix: String,
+    },
+}
+
+struct PreparedOutput {
+    archive_dir: PathBuf,
+    storage: ArchiveStorage,
+}
+
+impl PreparedOutput {
+    /// Prepares archive staging and the destination for a task attempt.
+    ///
+    /// # Returns
+    ///
+    /// The staging directory and destination on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * Forwards [`std::fs::create_dir_all`]'s return values on failure.
+    /// * Forwards [`std::fs::create_dir`]'s return values on failure.
+    fn new(
+        ctx: &spider_tdl::TaskContext,
+        config: &SpiderTaskExecutorConfig,
+        dataset: &DatasetName,
+        runtime: &tokio::runtime::Handle,
+    ) -> anyhow::Result<Self> {
+        let dataset_dir = config
+            .abs_archive_output_staging(clp_home())
+            .join(dataset.as_str());
+        std::fs::create_dir_all(&dataset_dir)?;
+        let archive_dir = dataset_dir.join(format!(
+            ".compression-{}-{}-{}",
+            ctx.job_id, ctx.task_id, ctx.task_instance_id
+        ));
+        std::fs::create_dir(&archive_dir)?;
+        let storage = match &config.archive_output.storage {
+            ArchiveOutputStorage::Fs { .. } => ArchiveStorage::Fs {
+                directory: dataset_dir,
+            },
+            ArchiveOutputStorage::S3 { s3_config, .. } => ArchiveStorage::S3 {
+                client: build_s3_client(runtime, s3_config),
+                bucket: s3_config.bucket.to_string(),
+                prefix: config
+                    .archive_output
+                    .dataset_archive_storage_directory(dataset),
+            },
+        };
+        Ok(Self {
+            archive_dir,
+            storage,
+        })
+    }
+}
+
 /// An async finisher for publishing a single archive.
 struct ArchiveFinisher {
-    client: aws_sdk_s3::Client,
-    bucket: String,
-    key: String,
+    storage: ArchiveStorage,
     indexer_bin: PathBuf,
     database: Database,
     dataset: DatasetName,
@@ -240,7 +365,7 @@ struct ArchiveFinisher {
 }
 
 impl ArchiveFinisher {
-    /// Publishes one produced archive: indexes it and uploads it to S3 concurrently.
+    /// Indexes one archive and places it in its configured storage.
     ///
     /// # Errors
     ///
@@ -249,46 +374,43 @@ impl ArchiveFinisher {
     /// * The indexer task panics.
     /// * Forwards [`upload_file_to_s3`]'s return values on failure.
     /// * Forwards [`run_indexer`]'s return values on failure.
+    /// * Forwards [`std::fs::rename`]'s return values on failure.
     async fn finish(self) -> anyhow::Result<()> {
         let Self {
-            client,
-            bucket,
-            key,
+            storage,
             indexer_bin,
             database,
             dataset,
             local_path,
             archive_id,
         } = self;
-
         let index_path = local_path.clone();
         let index = tokio::task::spawn_blocking(move || {
             run_indexer(&indexer_bin, &database, &dataset, &index_path)
         });
-        let (upload_result, index_result) = tokio::join!(
-            upload_file_to_s3(&client, &bucket, &key, &local_path),
-            index
-        );
-        upload_result
-            .context("failed to upload archive to S3")
-            .inspect_err(|e| {
-                tracing::error!(
-                    error = % e,
-                    archive_id = % archive_id,
-                    bucket = % bucket,
-                    key = % key,
-                    "Failed to upload archive to S3."
+        match storage {
+            ArchiveStorage::Fs { directory } => {
+                index.await.context("indexer task panicked")??;
+                let destination = directory.join(archive_id.to_string());
+                tokio::task::spawn_blocking(move || std::fs::rename(local_path, destination))
+                    .await
+                    .context("archive publication task panicked")??;
+            }
+            ArchiveStorage::S3 {
+                client,
+                bucket,
+                prefix,
+            } => {
+                let key = format!("{prefix}/{archive_id}");
+                let (upload, indexed) = tokio::join!(
+                    upload_file_to_s3(&client, &bucket, &key, &local_path),
+                    index
                 );
-            })?;
-        index_result
-            .map_err(|e| anyhow::anyhow!("indexer task panicked: {e}"))
-            .inspect_err(|e| {
-                tracing::error!(
-                    error = % e,
-                    "indexer panicked."
-                );
-            })??;
-        anyhow::Ok(())
+                upload?;
+                indexed.context("indexer task panicked")??;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -347,6 +469,47 @@ fn build_s3_logs_list(input_source: &S3InputSource) -> anyhow::Result<String> {
     Ok(list)
 }
 
+/// Validates a filesystem manifest and builds its explicit file list.
+///
+/// # Returns
+///
+/// A newline-separated list of regular files on success.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// * An entry is no longer a regular file or empty directory.
+/// * Forwards [`resolve_input_path`]'s return values on failure.
+/// * Forwards [`std::fs::read_dir`]'s return values on failure.
+fn build_fs_logs_list(source: &FsInputSource, root: &Path) -> anyhow::Result<String> {
+    let mut list = String::new();
+    for path in &source.file_paths {
+        let resolved = resolve_input_path(root, Path::new(path))?;
+        anyhow::ensure!(
+            resolved.is_file(),
+            "input {} is not a regular file",
+            resolved.display()
+        );
+        list.push_str(resolved.to_str().expect("validated paths are UTF-8"));
+        list.push('\n');
+    }
+    for path in &source.empty_directories {
+        let resolved = resolve_input_path(root, Path::new(path))?;
+        anyhow::ensure!(
+            resolved.is_dir(),
+            "input {} is not a directory",
+            resolved.display()
+        );
+        anyhow::ensure!(
+            std::fs::read_dir(&resolved)?.next().is_none(),
+            "input directory {} is no longer empty",
+            resolved.display()
+        );
+    }
+    Ok(list)
+}
+
 /// Parses a single clp-s `--print-archive-stats` stdout line into an [`ArchiveMetadata`].
 ///
 /// NOTE: clp-s emits a superset of [`ArchiveMetadata`]'s fields per line; unknown fields are
@@ -400,8 +563,8 @@ fn drain_finishers(
 
 /// Prepares clp-s's input. For unstructured logs, runs log-converter over `list_path` into a fresh
 /// tmp directory (registered with `tmp_file_deleter`) and returns that directory as the input; for
-/// structured logs, returns the S3 object list directly. clp-s needs the S3 credentials only in the
-/// structured case, so the unstructured case returns an empty credential env.
+/// structured logs, returns the manifest directly. Converted input is local and does not need
+/// S3 authentication.
 ///
 /// # Returns
 ///
@@ -415,20 +578,25 @@ fn drain_finishers(
 /// * Forwards [`run_log_converter`]'s return values on failure.
 fn prepare_clp_s_input(
     ctx: &spider_tdl::TaskContext,
-    clp_home: &Path,
     config: &SpiderTaskExecutorConfig,
     clp_s_option: &ClpSCompressionOption,
     list_path: &Path,
     credential_env: Vec<(&'static str, String)>,
+    s3_input: bool,
     tmp_file_deleter: &mut TmpFileDeleter,
 ) -> anyhow::Result<(ClpSInput, Vec<(&'static str, String)>)> {
     if !clp_s_option.unstructured {
         return Ok((
-            ClpSInput::FilesFrom(list_path.to_path_buf()),
+            if s3_input {
+                ClpSInput::FilesFrom(list_path.to_path_buf())
+            } else {
+                ClpSInput::LocalFilesFrom(list_path.to_path_buf())
+            },
             credential_env,
         ));
     }
 
+    let clp_home = clp_home();
     let converted_dir = config.abs_tmp_directory(clp_home).join(format!(
         "compression-{}-{}-{}-converted",
         ctx.job_id, ctx.task_id, ctx.task_instance_id,
@@ -454,11 +622,12 @@ fn prepare_clp_s_input(
         &converted_dir,
         list_path,
         &credential_env,
+        s3_input,
     )?;
     Ok((ClpSInput::Directory(converted_dir), Vec::new()))
 }
 
-/// Builds the clp-s command-line arguments for a single-file-archive compression run.
+/// Builds the clp-s arguments for the input source and archive format.
 ///
 /// The unstructured path drops S3 auth (clp-s reads the local converted directory) and pins the
 /// timestamp key to `timestamp`.
@@ -470,6 +639,7 @@ fn build_clp_s_args(
     archive_output_dir: &Path,
     input: &ClpSInput,
     clp_s_option: &ClpSCompressionOption,
+    single_file_archive: bool,
 ) -> Vec<OsString> {
     let mut args = vec![
         OsString::from("c"),
@@ -479,13 +649,16 @@ fn build_clp_s_args(
         OsString::from(clp_s_option.target_encoded_size.to_string()),
         OsString::from("--compression-level"),
         OsString::from(clp_s_option.compression_level.to_string()),
-        OsString::from("--single-file-archive"),
     ];
+    if single_file_archive {
+        args.push(OsString::from("--single-file-archive"));
+    }
     match input {
-        ClpSInput::FilesFrom(path) => {
-            // Compressing from S3.
-            args.push(OsString::from("--auth"));
-            args.push(OsString::from("s3"));
+        ClpSInput::FilesFrom(path) | ClpSInput::LocalFilesFrom(path) => {
+            if matches!(input, ClpSInput::FilesFrom(_)) {
+                args.push(OsString::from("--auth"));
+                args.push(OsString::from("s3"));
+            }
             if let Some(timestamp_key) = &clp_s_option.timestamp_key {
                 args.push(OsString::from("--timestamp-key"));
                 args.push(OsString::from(timestamp_key));
@@ -503,40 +676,26 @@ fn build_clp_s_args(
     args
 }
 
-/// Builds the log-converter command-line arguments for converting S3-sourced unstructured logs.
+/// Builds the log-converter arguments for an input manifest.
 ///
 /// # Returns
 ///
 /// The ordered log-converter arguments.
-fn build_log_converter_args(output_dir: &Path, inputs_from_path: &Path) -> Vec<OsString> {
-    vec![
+fn build_log_converter_args(
+    output_dir: &Path,
+    inputs_from_path: &Path,
+    s3_input: bool,
+) -> Vec<OsString> {
+    let mut args = vec![
         OsString::from("--output-dir"),
         output_dir.as_os_str().to_os_string(),
         OsString::from("--inputs-from"),
         inputs_from_path.as_os_str().to_os_string(),
-        OsString::from("--auth"),
-        OsString::from("s3"),
-    ]
-}
-
-/// Resolves the S3 config the archives are uploaded to from `config`.
-///
-/// # Returns
-///
-/// The S3 config the archives are uploaded to.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// * `config`'s archive output is not S3-backed.
-fn extract_s3_output_config(config: &SpiderTaskExecutorConfig) -> anyhow::Result<&S3Config> {
-    match &config.archive_output.storage {
-        ArchiveOutputStorage::S3 { s3_config, .. } => Ok(s3_config),
-        ArchiveOutputStorage::Fs { .. } => {
-            anyhow::bail!("S3 archive output is required for the S3 compression flow")
-        }
+    ];
+    if s3_input {
+        args.extend([OsString::from("--auth"), OsString::from("s3")]);
     }
+    args
 }
 
 /// Uploads a local file to S3 through `PutObject`.
@@ -652,9 +811,14 @@ fn run_log_converter(
     output_dir: &Path,
     inputs_from_path: &Path,
     credential_env: &[(&'static str, String)],
+    s3_input: bool,
 ) -> anyhow::Result<()> {
     let mut child = Command::new(log_converter_bin)
-        .args(build_log_converter_args(output_dir, inputs_from_path))
+        .args(build_log_converter_args(
+            output_dir,
+            inputs_from_path,
+            s3_input,
+        ))
         .envs(credential_env.iter().cloned())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -724,10 +888,16 @@ fn run_clp_s(
     clp_s_option: &ClpSCompressionOption,
     input: &ClpSInput,
     credential_env: &[(&'static str, String)],
+    single_file_archive: bool,
     mut on_archive: impl FnMut(ArchiveMetadata) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     let mut child = Command::new(clp_s_bin)
-        .args(build_clp_s_args(archive_dir, input, clp_s_option))
+        .args(build_clp_s_args(
+            archive_dir,
+            input,
+            clp_s_option,
+            single_file_archive,
+        ))
         .envs(credential_env.iter().cloned())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -832,6 +1002,69 @@ mod tests {
     use super::parse_archive_stats;
 
     #[test]
+    fn compression_rejects_text_engine_before_initializing_worker_state() -> anyhow::Result<()> {
+        let context = spider_tdl::TaskContext::new(
+            spider_core::types::id::JobId::random(),
+            spider_core::types::id::TaskId::Index(0),
+            1,
+            spider_core::types::id::ResourceGroupId::random(),
+            None,
+        )?;
+        let options = ClpSCompressionOption {
+            target_encoded_size: 1024,
+            compression_level: 3,
+            timestamp_key: None,
+            unstructured: false,
+        };
+        let error = super::compress(
+            &context,
+            &super::SpiderTaskExecutorConfig::default(),
+            &options,
+            DatasetName::default(),
+            &super::CompressionInputSource::Fs(super::FsInputSource {
+                file_paths: Vec::new(),
+                empty_directories: Vec::new(),
+            }),
+        )
+        .expect_err("text compression must be rejected");
+        assert!(error.to_string().contains("clp-s"));
+        Ok(())
+    }
+
+    #[test]
+    fn filesystem_compression_omits_s3_auth_and_preserves_directory_archive_format() {
+        let options = ClpSCompressionOption {
+            target_encoded_size: 1024,
+            compression_level: 3,
+            timestamp_key: Some("ts".to_owned()),
+            unstructured: false,
+        };
+        let args = build_clp_s_args(
+            Path::new("/archives"),
+            &ClpSInput::LocalFilesFrom(PathBuf::from("/tmp/manifest")),
+            &options,
+            false,
+        );
+        assert!(!args.contains(&OsString::from("--auth")));
+        assert!(!args.contains(&OsString::from("--single-file-archive")));
+        assert!(args.windows(2).any(|pair| pair
+            == [
+                OsString::from("--files-from"),
+                OsString::from("/tmp/manifest")
+            ]));
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == [OsString::from("--timestamp-key"), OsString::from("ts")])
+        );
+        let converter = build_log_converter_args(
+            Path::new("/tmp/converted"),
+            Path::new("/tmp/manifest"),
+            false,
+        );
+        assert!(!converter.contains(&OsString::from("--auth")));
+    }
+
+    #[test]
     fn build_s3_logs_list_default_endpoint() -> anyhow::Result<()> {
         let input_source = S3InputSource {
             endpoint_url: None,
@@ -896,7 +1129,8 @@ mod tests {
             build_clp_s_args(
                 Path::new("/archives"),
                 &ClpSInput::FilesFrom(PathBuf::from("/tmp/log-paths.txt")),
-                &clp_s_option
+                &clp_s_option,
+                true,
             ),
             vec![
                 OsString::from("c"),
@@ -930,7 +1164,8 @@ mod tests {
             build_clp_s_args(
                 Path::new("/archives"),
                 &ClpSInput::FilesFrom(PathBuf::from("/tmp/log-paths.txt")),
-                &clp_s_option
+                &clp_s_option,
+                true,
             ),
             vec![
                 OsString::from("c"),
@@ -962,7 +1197,8 @@ mod tests {
             build_clp_s_args(
                 Path::new("/archives"),
                 &ClpSInput::Directory(PathBuf::from("/tmp/converted")),
-                &clp_s_option
+                &clp_s_option,
+                true,
             ),
             vec![
                 OsString::from("c"),
@@ -983,7 +1219,11 @@ mod tests {
     #[test]
     fn build_log_converter_args_expected_order() {
         assert_eq!(
-            build_log_converter_args(Path::new("/tmp/converted"), Path::new("/tmp/log-paths.txt")),
+            build_log_converter_args(
+                Path::new("/tmp/converted"),
+                Path::new("/tmp/log-paths.txt"),
+                true
+            ),
             vec![
                 OsString::from("--output-dir"),
                 OsString::from("/tmp/converted"),

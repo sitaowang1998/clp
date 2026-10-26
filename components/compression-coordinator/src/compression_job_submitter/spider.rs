@@ -1,4 +1,4 @@
-//! [`S3CompressionJobSubmitter`] implementation for [`spider_client::SpiderClient`].
+//! [`CompressionJobSubmitter`] implementation for [`spider_client::SpiderClient`].
 
 use std::time::Duration;
 
@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use clp_rust_utils::dataset::DatasetName;
 use clp_rust_utils::job_config::CompressionJobId;
 use clp_rust_utils::task_io::compression::ClpSCompressionOption;
-use clp_rust_utils::task_io::compression::S3InputSource;
+use clp_rust_utils::task_io::compression::CompressionInputSource;
 use spider_client::SpiderClient;
 use spider_client::error::ClientError;
 use spider_core::job::JobState;
@@ -22,11 +22,11 @@ use spider_core::types::id::ResourceGroupId;
 use spider_core::types::io::TaskGraphInputBuilder;
 
 use crate::compression_job_submitter::CompressionJobOutcome;
-use crate::compression_job_submitter::S3CompressionJobSubmitter;
+use crate::compression_job_submitter::CompressionJobSubmitter;
 use crate::error::Error;
 
 #[async_trait]
-impl S3CompressionJobSubmitter for SpiderClient {
+impl CompressionJobSubmitter for SpiderClient {
     /// # Errors
     ///
     /// Returns an error if:
@@ -39,18 +39,18 @@ impl S3CompressionJobSubmitter for SpiderClient {
     /// * Forwards [`TaskGraphInputBuilder::append_shared_task_input`]'s return values on failure.
     /// * Forwards [`TaskGraphInputBuilder::append_task_input`]'s return values on failure.
     /// * Forwards [`SpiderClient::submit_job`]'s return values on failure.
-    async fn submit_s3_compression_job(
+    async fn submit_compression_job(
         &self,
         compression_job_id: CompressionJobId,
         resource_group_id: ResourceGroupId,
         clp_s_option: ClpSCompressionOption,
         dataset: DatasetName,
-        input_sources: Vec<(S3InputSource, ExecutionPolicy)>,
+        input_sources: Vec<(CompressionInputSource, ExecutionPolicy)>,
         commit_task_execution_policy: ExecutionPolicy,
     ) -> Result<JobId, Error> {
         // NOTE: These constants must be kept in sync with the TDL package definitions.
         const CLP_TDL_PACKAGE_NAME: &str = "clp";
-        const COMPRESSION_TASK_FUNC: &str = "compression::clp_s_s3_compress";
+        const COMPRESSION_TASK_FUNC: &str = "compression::clp_s_compress";
         const COMMIT_TASK_FUNC: &str = "compression::commit";
 
         let commit_task = TerminationTaskDescriptor {
@@ -80,7 +80,7 @@ impl S3CompressionJobSubmitter for SpiderClient {
                         "DatasetName",
                     )?),
                     DataTypeDescriptor::Value(ValueTypeDescriptor::struct_from_name(
-                        "S3InputSource",
+                        "CompressionInputSource",
                     )?),
                 ],
                 outputs: vec![DataTypeDescriptor::Value(
@@ -111,10 +111,12 @@ impl S3CompressionJobSubmitter for SpiderClient {
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`SpiderClient::start_job`]'s return values on failure, except
-    ///   [`ClientError::InvalidJobState`], which indicates the job has already been started.
-    /// * Forwards [`SpiderClient::get_job_state`]'s return values on failure.
-    async fn run_s3_compression_job_to_completion(
+    /// * Forwards [`SpiderClient::start_job`]'s failures other than
+    ///   [`ClientError::InvalidJobState`], [`ClientError::Transport`], and [`ClientError::Server`];
+    ///   these failures trigger another state poll before any further start attempt.
+    /// * Forwards [`SpiderClient::get_job_state`]'s failures other than
+    ///   [`ClientError::Transport`] and [`ClientError::Server`], which are retried.
+    async fn run_compression_job_to_completion(
         &self,
         spider_job_id: JobId,
         initial_poll_backoff: Duration,
@@ -123,16 +125,25 @@ impl S3CompressionJobSubmitter for SpiderClient {
         /// The multiplier applied to the poll backoff after each non-terminal poll.
         const POLL_BACKOFF_FACTOR: u32 = 2;
 
-        match self.start_job(spider_job_id).await {
-            Ok(_) | Err(ClientError::InvalidJobState(_)) => {}
-            Err(error) => return Err(error.into()),
-        }
-
         let mut backoff = initial_poll_backoff.min(max_poll_backoff);
         let terminal_state = loop {
-            let state = self.get_job_state(spider_job_id).await?;
-            if state.is_terminal() {
-                break state;
+            match self.get_job_state(spider_job_id).await {
+                Ok(state) if state.is_terminal() => break state,
+                Ok(JobState::Ready) => match self.start_job(spider_job_id).await {
+                    Ok(_) | Err(ClientError::InvalidJobState(_)) => {}
+                    Err(error @ (ClientError::Transport(_) | ClientError::Server(_))) => {
+                        tracing::warn!(
+                            error = % error,
+                            "Retrying compression job start after reconciling its state."
+                        );
+                    }
+                    Err(error) => return Err(error.into()),
+                },
+                Ok(_) => {}
+                Err(error @ (ClientError::Transport(_) | ClientError::Server(_))) => {
+                    tracing::warn!(error = % error, "Retrying compression job state polling.");
+                }
+                Err(error) => return Err(error.into()),
             }
             tokio::time::sleep(backoff).await;
             backoff = backoff

@@ -2,6 +2,7 @@
 
 use clp_rust_utils::dataset::DatasetName;
 use clp_rust_utils::task_io::compression::ClpSCompressionOption;
+use clp_rust_utils::task_io::compression::CompressionInputSource;
 use clp_rust_utils::task_io::compression::CompressionTaskOutput;
 use clp_rust_utils::task_io::compression::S3InputSource;
 use spider_tdl::TaskContext;
@@ -23,9 +24,26 @@ pub(crate) fn s3_compress_task(
         crate::common::spider_task_executor_config(),
         &clp_s_option,
         dataset,
-        input_source,
+        &CompressionInputSource::S3(input_source),
     )
     .map_err(|e| TdlError::ExecutionError(format!("{e:#}")))
+}
+
+#[task(name = "compression::clp_s_compress")]
+pub(crate) fn compress_task(
+    ctx: TaskContext,
+    clp_s_option: ClpSCompressionOption,
+    dataset: DatasetName,
+    input_source: CompressionInputSource,
+) -> Result<CompressionTaskOutput, TdlError> {
+    compress::compress(
+        &ctx,
+        crate::common::spider_task_executor_config(),
+        &clp_s_option,
+        dataset,
+        &input_source,
+    )
+    .map_err(|error| TdlError::ExecutionError(format!("{error:#}")))
 }
 
 #[task(name = "compression::commit")]
@@ -39,6 +57,11 @@ pub(crate) fn commit_task(ctx: TaskContext) -> Result<(), TdlError> {
         .map(|output| rmp_serde::from_slice(output))
         .collect::<Result<_, _>>()
         .map_err(|e| TdlError::DeserializationError(e.to_string()))?;
+    if outputs.is_empty() {
+        return Err(TdlError::ExecutionError(
+            "compression commit requires task outputs".to_owned(),
+        ));
+    }
     let dataset = outputs
         .first()
         .map_or_else(DatasetName::default, |output| output.dataset.clone());

@@ -1,4 +1,4 @@
-//! The compression-job-submission API trait for driving CLP S3 compression jobs on a Spider
+//! The compression-job-submission API trait for driving CLP compression jobs on a Spider
 //! (Huntsman) cluster.
 
 mod spider;
@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use clp_rust_utils::dataset::DatasetName;
 use clp_rust_utils::job_config::CompressionJobId;
 use clp_rust_utils::task_io::compression::ClpSCompressionOption;
-use clp_rust_utils::task_io::compression::S3InputSource;
+use clp_rust_utils::task_io::compression::CompressionInputSource;
 use serde::Deserialize;
 use serde::Serialize;
 use spider_core::task::ExecutionPolicy;
@@ -31,9 +31,9 @@ pub enum CompressionJobOutcome {
     Cancelled,
 }
 
-/// Drives CLP S3 compression jobs on a Spider (Huntsman) cluster.
+/// Drives CLP compression jobs on a Spider (Huntsman) cluster.
 #[async_trait]
-pub trait S3CompressionJobSubmitter: Clone + Send + Sync {
+pub trait CompressionJobSubmitter: Clone + Send + Sync {
     /// Builds the compression task graph for `input_sources` and registers it with Spider, without
     /// starting it.
     ///
@@ -43,7 +43,7 @@ pub trait S3CompressionJobSubmitter: Clone + Send + Sync {
     /// * `resource_group_id` - The Spider resource group to register the job under.
     /// * `clp_s_option` - `clp-s` tuning options shared by every task in the job.
     /// * `dataset` - The dataset to compress into.
-    /// * `input_sources` - S3 input sources to compress, each paired with the execution policy to
+    /// * `input_sources` - Input sources to compress, each paired with the execution policy to
     ///   apply to the compression task it creates. Each element represents an input to a
     ///   compression task.
     /// * `commit_task_execution_policy` - The execution policy to apply to the job's commit task.
@@ -55,13 +55,13 @@ pub trait S3CompressionJobSubmitter: Clone + Send + Sync {
     /// # Errors
     ///
     /// Implementations must document their error conditions.
-    async fn submit_s3_compression_job(
+    async fn submit_compression_job(
         &self,
         compression_job_id: CompressionJobId,
         resource_group_id: ResourceGroupId,
         clp_s_option: ClpSCompressionOption,
         dataset: DatasetName,
-        input_sources: Vec<(S3InputSource, ExecutionPolicy)>,
+        input_sources: Vec<(CompressionInputSource, ExecutionPolicy)>,
         commit_task_execution_policy: ExecutionPolicy,
     ) -> Result<JobId, Error>;
 
@@ -84,7 +84,7 @@ pub trait S3CompressionJobSubmitter: Clone + Send + Sync {
     /// # Errors
     ///
     /// Implementations must document their error conditions.
-    async fn run_s3_compression_job_to_completion(
+    async fn run_compression_job_to_completion(
         &self,
         spider_job_id: JobId,
         initial_poll_backoff: Duration,

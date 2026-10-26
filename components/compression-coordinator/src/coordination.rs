@@ -16,7 +16,10 @@
 //! * A non-NULL `dispatch_time` indicates that the coordinator has picked up the job and granted it
 //!   permission to run under the concurrency limit.
 
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use clp_rust_utils::clp_config::package::config::CompressionCoordinator as CoordinatorConfig;
@@ -41,8 +44,8 @@ use tokio_util::sync::CancellationToken;
 use tonic::transport::Endpoint;
 
 use crate::Error;
-use crate::job_handle::S3CompressionJobHandle;
-use crate::job_handle::SpiderOption;
+use crate::job_handle::CompressionJobHandle;
+use crate::job_handle::JobOptions;
 
 /// Coordinator for fetching new compression jobs and submitting them to Spider.
 pub struct Coordinator {
@@ -50,7 +53,7 @@ pub struct Coordinator {
     spider_client: SpiderClient,
     db_pool: sqlx::MySqlPool,
     db_config: DatabaseConfig,
-    spider_option: Arc<SpiderOption>,
+    job_options: Arc<JobOptions>,
     is_first_fetch: bool,
     job_polling_interval: Duration,
     cancellation_token: CancellationToken,
@@ -86,6 +89,7 @@ impl Coordinator {
         spider_config: &SpiderConfig,
         db_pool: sqlx::MySqlPool,
         db_config: DatabaseConfig,
+        filesystem_root: Option<PathBuf>,
     ) -> Result<(Self, CancellationToken), Error> {
         let max_concurrent_jobs = coordinator_config.max_concurrent_jobs.get();
         if max_concurrent_jobs > Semaphore::MAX_PERMITS {
@@ -116,7 +120,8 @@ impl Coordinator {
                 tracing::error!(error = % e, "Failed to add or verify resource group.");
             })?;
 
-        let spider_option = Arc::new(SpiderOption {
+        let job_options = Arc::new(JobOptions {
+            filesystem_root,
             compression_task_max_retry: coordinator_config.compression_task_max_retry,
             commit_task_execution_policy: ExecutionPolicy {
                 max_num_instances: 1,
@@ -147,7 +152,7 @@ impl Coordinator {
             spider_client,
             db_pool,
             db_config,
-            spider_option,
+            job_options,
             is_first_fetch: true,
             job_polling_interval: Duration::from_millis(
                 coordinator_config.job_polling_interval_millisecs.get(),
@@ -156,19 +161,23 @@ impl Coordinator {
             job_handler_sem: Arc::new(Semaphore::new(max_concurrent_jobs)),
         };
 
-        // NOTE: The current implementation does not enforce concurrency limits for recovered jobs
-        // since they were already submitted to Spider. See #2472.
-        for (job_id, spider_job_id, clp_io_config) in
-            coordinator.fetch_submitted_running_jobs().await?
-        {
+        let recovered = coordinator.fetch_submitted_running_jobs().await?;
+        let recovery = Arc::new(RecoveryTracker::new(
+            recovered.len(),
+            max_concurrent_jobs,
+            coordinator.job_handler_sem.clone(),
+        ));
+        for (job_id, spider_job_id, clp_io_config) in recovered {
             tracing::info!(
                 job_id = % job_id,
                 spider_job_id = % spider_job_id,
                 "Recovering a previously submitted job."
             );
             let Ok(job_handle) = coordinator.create_job_handle(job_id, clp_io_config).await else {
+                recovery.finish_job();
                 continue;
             };
+            let recovery = recovery.clone();
             tokio::spawn(async move {
                 let _ = job_handle.recover(spider_job_id).await.inspect_err(|e| {
                     tracing::error!(
@@ -178,6 +187,7 @@ impl Coordinator {
                         "The recovered compression job failed."
                     );
                 });
+                recovery.finish_job();
             });
         }
 
@@ -238,14 +248,16 @@ impl Coordinator {
     async fn mark_job_failed(&self, job_id: CompressionJobId, status_msg: &str) {
         const QUERY: &str = formatcp!(
             "UPDATE `{table}` SET `status` = ?, `status_msg` = ?, `update_time` = \
-             CURRENT_TIMESTAMP() WHERE `id` = ?;",
+             CURRENT_TIMESTAMP() WHERE `id` = ? AND `status` IN (?, ?);",
             table = COMPRESSION_JOBS_TABLE_NAME,
         );
         tracing::info!(job_id = % job_id, "Failing the compression job.");
         if let Err(e) = sqlx::query(QUERY)
             .bind(CompressionJobStatus::Failed)
-            .bind(status_msg)
+            .bind(status_msg.chars().take(512).collect::<String>())
             .bind(job_id)
+            .bind(CompressionJobStatus::Pending)
+            .bind(CompressionJobStatus::Running)
             .execute(&self.db_pool)
             .await
         {
@@ -325,7 +337,7 @@ impl Coordinator {
                     tracing::error!(
                         error = % e,
                         job_id = % job_id,
-                        "Failed to schedule S3 compression job."
+                        "Failed to schedule compression job."
                     );
                 });
             });
@@ -366,7 +378,7 @@ impl Coordinator {
         Ok(())
     }
 
-    /// Constructs an [`S3CompressionJobHandle`] for the given job.
+    /// Constructs an [`CompressionJobHandle`] for the given job.
     ///
     /// A construction failure is logged, and the job is marked [`CompressionJobStatus::Failed`] for
     /// any failure other than an unsupported input config, which is only warned and left for
@@ -374,26 +386,26 @@ impl Coordinator {
     ///
     /// # Returns
     ///
-    /// The constructed [`S3CompressionJobHandle`] on success.
+    /// The constructed [`CompressionJobHandle`] on success.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     ///
-    /// * Forwards [`S3CompressionJobHandle::new`]'s return values on failure.
+    /// * Forwards [`CompressionJobHandle::new`]'s return values on failure.
     async fn create_job_handle(
         &self,
         job_id: CompressionJobId,
         clp_io_config: ClpIoConfig,
-    ) -> Result<S3CompressionJobHandle<SpiderClient>, Error> {
-        let result = S3CompressionJobHandle::new(
+    ) -> Result<CompressionJobHandle<SpiderClient>, Error> {
+        let result = CompressionJobHandle::new(
             self.db_pool.clone(),
             self.db_config.clone(),
             job_id,
             self.spider_client.clone(),
             self.resource_group_id,
             clp_io_config,
-            self.spider_option.clone(),
+            self.job_options.clone(),
         );
 
         if let Err(e) = &result {
@@ -407,7 +419,7 @@ impl Coordinator {
                 tracing::error!(
                     error = % e,
                     job_id = % job_id,
-                    "Failed to create S3 job handle. Skipping."
+                    "Failed to create compression job handle. Skipping."
                 );
                 self.mark_job_failed(
                     job_id,
@@ -550,4 +562,63 @@ struct RunningJobRowProjection {
     spider_job_id: SpiderJobId,
     #[sqlx(rename = "clp_config")]
     serialized_clp_io_config: Vec<u8>,
+}
+
+/// Accounts for already-running jobs when admitting new work.
+struct RecoveryTracker {
+    num_jobs: AtomicUsize,
+    max_jobs: usize,
+    job_handler_sem: Arc<Semaphore>,
+}
+
+impl RecoveryTracker {
+    /// Reserves admission capacity for recovered jobs.
+    ///
+    /// # Returns
+    ///
+    /// A tracker that releases capacity as recovered jobs terminate.
+    fn new(num_jobs: usize, max_jobs: usize, job_handler_sem: Arc<Semaphore>) -> Self {
+        job_handler_sem.forget_permits(num_jobs.min(max_jobs));
+        Self {
+            num_jobs: AtomicUsize::new(num_jobs),
+            max_jobs,
+            job_handler_sem,
+        }
+    }
+
+    /// Releases capacity once the number of recovered jobs falls below the configured limit.
+    fn finish_job(&self) {
+        let previous = self.num_jobs.fetch_sub(1, Ordering::Relaxed);
+        assert!(previous > 0, "each recovered job completes once");
+        if previous <= self.max_jobs {
+            self.job_handler_sem.add_permits(1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use tokio::sync::Semaphore;
+
+    use super::RecoveryTracker;
+
+    #[test]
+    fn recovered_jobs_reserve_capacity_until_excess_jobs_drain() {
+        let semaphore = Arc::new(Semaphore::new(2));
+        let tracker = RecoveryTracker::new(3, 2, semaphore.clone());
+        assert_eq!(semaphore.available_permits(), 0);
+        tracker.finish_job();
+        assert_eq!(semaphore.available_permits(), 0);
+        tracker.finish_job();
+        let permit = semaphore
+            .try_acquire()
+            .expect("one new job can now be admitted");
+        assert_eq!(semaphore.available_permits(), 0);
+        tracker.finish_job();
+        assert_eq!(semaphore.available_permits(), 1);
+        drop(permit);
+        assert_eq!(semaphore.available_permits(), 2);
+    }
 }

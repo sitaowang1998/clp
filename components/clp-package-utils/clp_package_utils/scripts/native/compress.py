@@ -43,14 +43,14 @@ logger = logging.getLogger(__file__)
 def print_compression_job_status(job_row):
     job_uncompressed_size = job_row["uncompressed_size"]
     job_compressed_size = job_row["compressed_size"]
-    compression_ratio = float(job_uncompressed_size) / job_compressed_size
+    compression_ratio = (
+        float(job_uncompressed_size) / job_compressed_size if job_compressed_size > 0 else 0.0
+    )
     if CompressionJobStatus.SUCCEEDED == job_row["status"]:
-        compression_speed = job_uncompressed_size / job_row["duration"]
+        duration = job_row["duration"]
     else:
-        compression_speed = (
-            job_uncompressed_size
-            / (datetime.datetime.now() - job_row["start_time"]).total_seconds()
-        )
+        duration = (datetime.datetime.now() - job_row["start_time"]).total_seconds()
+    compression_speed = job_uncompressed_size / duration if duration and duration > 0 else 0.0
     logger.info(
         f"Compressed {pretty_size(job_uncompressed_size)} into "
         f"{pretty_size(job_compressed_size)} ({compression_ratio:.2f}x). "

@@ -22,6 +22,7 @@ from clp_py_utils.clp_config import (
     CLP_SHARED_CONFIG_FILENAME,
     ClpConfig,
     COMPRESSION_RESOURCE_GROUP_NAME,
+    CompressionOrchestration,
     CONTAINER_AWS_CONFIG_DIRECTORY,
     CONTAINER_CLP_HOME,
     CONTAINER_INPUT_LOGS_ROOT_DIR,
@@ -369,13 +370,16 @@ def generate_container_config(
 
 def generate_docker_compose_container_config(clp_config: ClpConfig) -> ClpConfig:
     """
-    Copies the given config and transforms mount paths and hosts for Docker Compose.
+    Copies the given config, transforms mount paths and hosts, and disables undeployed compression
+    coordination for Docker Compose.
 
     :param clp_config:
     :return: The container config.
     """
     container_clp_config = clp_config.model_copy(deep=True)
     container_clp_config.transform_for_container()
+    if container_clp_config.package.scheduler == CompressionOrchestration.CELERY:
+        container_clp_config.compression_coordinator = None
 
     return container_clp_config
 

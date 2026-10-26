@@ -1,4 +1,4 @@
-//! Partitioning of S3 objects into compression-task inputs.
+//! Partitioning of discovered files and S3 objects into compression-task inputs.
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -7,6 +7,8 @@ use clp_rust_utils::clp_config::S3Config;
 use clp_rust_utils::job_config::ClpIoConfig;
 use clp_rust_utils::job_config::InputConfig;
 use clp_rust_utils::s3::ObjectMetadata;
+use clp_rust_utils::task_io::compression::CompressionInputSource;
+use clp_rust_utils::task_io::compression::FsInputSource;
 use clp_rust_utils::task_io::compression::S3InputSource;
 
 use crate::Error;
@@ -17,11 +19,12 @@ use crate::Error;
 /// contains the inputs for a single compression task.
 pub struct CompressionInputBuilder {
     buffer: Vec<FileMetadata>,
-    partitioned_task_inputs: Vec<S3InputSource>,
+    partitioned_task_inputs: Vec<CompressionInputSource>,
     total_buffered_size: u64,
     target_archive_size: u64,
     buffer_size_to_trigger_partition: u64,
-    s3_config: S3Config,
+    s3_config: Option<S3Config>,
+    empty_directories: Vec<String>,
 }
 
 impl CompressionInputBuilder {
@@ -48,6 +51,66 @@ impl CompressionInputBuilder {
         Ok(Self::from_s3_config(s3_config, target_archive_size))
     }
 
+    /// Adds an S3 object to the buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * [`Error::UnsupportedInputConfig`] if the builder is configured for filesystem input.
+    /// * [`Error::S3BucketMismatch`] if `metadata`'s bucket differs from the buffer's configured
+    ///   bucket.
+    /// * [`Error::S3KeyPrefixMismatch`] if `metadata`'s key doesn't start with the buffer's
+    ///   configured key prefix.
+    pub fn add(&mut self, metadata: ObjectMetadata) -> Result<(), Error> {
+        let Some(config) = &self.s3_config else {
+            return Err(Error::UnsupportedInputConfig);
+        };
+        if metadata.bucket != config.bucket {
+            return Err(Error::S3BucketMismatch(
+                String::from(config.bucket.clone()),
+                String::from(metadata.bucket),
+            ));
+        }
+
+        if !metadata
+            .key
+            .as_str()
+            .starts_with(config.key_prefix.as_str())
+        {
+            return Err(Error::S3KeyPrefixMismatch(
+                String::from(config.key_prefix.clone()),
+                String::from(metadata.key),
+            ));
+        }
+
+        self.add_file(String::from(metadata.key), metadata.size);
+        Ok(())
+    }
+
+    /// Flushes any remaining buffered objects and consumes the builder, returning the completed
+    /// compression task inputs.
+    ///
+    /// # Returns
+    ///
+    /// A vector of input sources, where each source contains the inputs for a single compression
+    /// task.
+    #[must_use]
+    pub fn into_task_input_sources(mut self) -> Vec<CompressionInputSource> {
+        self.flush();
+        if !self.empty_directories.is_empty() {
+            let empty_directories = std::mem::take(&mut self.empty_directories);
+            for directories in empty_directories.chunks(MAX_PARTITION_ENTRIES) {
+                self.partitioned_task_inputs
+                    .push(CompressionInputSource::Fs(FsInputSource {
+                        file_paths: Vec::new(),
+                        empty_directories: directories.to_vec(),
+                    }));
+            }
+        }
+        self.partitioned_task_inputs
+    }
+
     /// Creates an empty builder from the S3 input settings and target archive size.
     ///
     /// # Returns
@@ -60,61 +123,42 @@ impl CompressionInputBuilder {
             partitioned_task_inputs: Vec::new(),
             total_buffered_size: 0,
             target_archive_size,
-            buffer_size_to_trigger_partition: target_archive_size * 2,
-            s3_config,
+            buffer_size_to_trigger_partition: target_archive_size.saturating_mul(2),
+            s3_config: Some(s3_config),
+            empty_directories: Vec::new(),
         }
     }
 
-    /// Adds an S3 object to the buffer.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    ///
-    /// * [`Error::S3BucketMismatch`] if `metadata`'s bucket differs from the buffer's configured
-    ///   bucket.
-    /// * [`Error::S3KeyPrefixMismatch`] if `metadata`'s key doesn't start with the buffer's
-    ///   configured key prefix.
-    pub fn add(&mut self, metadata: ObjectMetadata) -> Result<(), Error> {
-        if metadata.bucket != self.s3_config.bucket {
-            return Err(Error::S3BucketMismatch(
-                String::from(self.s3_config.bucket.clone()),
-                String::from(metadata.bucket),
-            ));
-        }
-
-        if !metadata
-            .key
-            .as_str()
-            .starts_with(self.s3_config.key_prefix.as_str())
-        {
-            return Err(Error::S3KeyPrefixMismatch(
-                String::from(self.s3_config.key_prefix.clone()),
-                String::from(metadata.key),
-            ));
-        }
-
-        let file = FileMetadata::new(String::from(metadata.key), metadata.size);
-        self.total_buffered_size += file.estimated_size;
-        self.buffer.push(file);
-        if self.total_buffered_size >= self.buffer_size_to_trigger_partition {
-            self.partition(false);
-        }
-
-        Ok(())
-    }
-
-    /// Flushes any remaining buffered objects and consumes the builder, returning the completed
-    /// compression task inputs.
+    /// Creates a filesystem partition builder.
     ///
     /// # Returns
     ///
-    /// A vector of input sources, where each source contains the inputs for a single compression
-    /// task.
-    #[must_use]
-    pub fn into_task_input_sources(mut self) -> Vec<S3InputSource> {
-        self.flush();
-        self.partitioned_task_inputs
+    /// An empty builder with the supplied target size and empty directories.
+    pub(crate) const fn from_filesystem(
+        target_archive_size: u64,
+        empty_directories: Vec<String>,
+    ) -> Self {
+        Self {
+            buffer: Vec::new(),
+            partitioned_task_inputs: Vec::new(),
+            total_buffered_size: 0,
+            target_archive_size,
+            buffer_size_to_trigger_partition: target_archive_size.saturating_mul(2),
+            s3_config: None,
+            empty_directories,
+        }
+    }
+
+    /// Adds a discovered file to the partition buffer.
+    pub(crate) fn add_file(&mut self, path: String, size: u64) {
+        let file = FileMetadata::new(path, size);
+        self.total_buffered_size = self.total_buffered_size.saturating_add(file.estimated_size);
+        self.buffer.push(file);
+        if self.total_buffered_size >= self.buffer_size_to_trigger_partition
+            || self.buffer.len() >= MAX_PARTITION_ENTRIES
+        {
+            self.partition(self.buffer.len() >= MAX_PARTITION_ENTRIES);
+        }
     }
 
     /// Partitions all the objects in the current buffer.
@@ -129,13 +173,21 @@ impl CompressionInputBuilder {
             return;
         }
 
-        self.partitioned_task_inputs.push(S3InputSource {
-            endpoint_url: self.s3_config.endpoint_url.clone(),
-            region_code: self.s3_config.region_code.clone(),
-            bucket: self.s3_config.bucket.clone(),
-            aws_authentication: self.s3_config.aws_authentication.clone(),
-            object_keys,
-        });
+        let input = if let Some(config) = &self.s3_config {
+            CompressionInputSource::S3(S3InputSource {
+                endpoint_url: config.endpoint_url.clone(),
+                region_code: config.region_code.clone(),
+                bucket: config.bucket.clone(),
+                aws_authentication: config.aws_authentication.clone(),
+                object_keys,
+            })
+        } else {
+            CompressionInputSource::Fs(FsInputSource {
+                file_paths: object_keys,
+                empty_directories: Vec::new(),
+            })
+        };
+        self.partitioned_task_inputs.push(input);
     }
 
     /// Partitions buffered objects into target-sized compression task inputs.
@@ -154,16 +206,19 @@ impl CompressionInputBuilder {
 
         'partitioning: while flush_buffer || self.total_buffered_size >= self.target_archive_size {
             let mut partition = Vec::new();
-            let mut partition_size = 0;
+            let mut partition_size = 0_u64;
 
-            while partition_size < self.target_archive_size {
+            while partition_size < self.target_archive_size
+                && partition.len() < MAX_PARTITION_ENTRIES
+            {
                 let Some(file) = rr_iterator.next() else {
                     self.push_input_source(partition);
                     break 'partitioning;
                 };
 
-                partition_size += file.estimated_size;
-                self.total_buffered_size -= file.estimated_size;
+                partition_size = partition_size.saturating_add(file.estimated_size);
+                self.total_buffered_size =
+                    self.total_buffered_size.saturating_sub(file.estimated_size);
                 partition.push(file.path);
             }
 
@@ -174,7 +229,9 @@ impl CompressionInputBuilder {
     }
 }
 
-/// An S3 object's key and its estimated uncompressed size.
+const MAX_PARTITION_ENTRIES: usize = 4096;
+
+/// An input path and its estimated uncompressed size.
 struct FileMetadata {
     path: String,
     estimated_size: u64,
@@ -240,7 +297,7 @@ impl Iterator for RoundRobinIterator {
     }
 }
 
-/// Estimates an S3 object's uncompressed size from its compressor suffix.
+/// Estimates an input's uncompressed size from its compressor suffix.
 ///
 /// # Returns
 ///
@@ -254,9 +311,9 @@ fn estimate_uncompressed_size(key: &str, size: u64) -> u64 {
         .iter()
         .any(|suffix| ends_with_ignore_ascii_case(key, suffix))
     {
-        size * GZIP_COMPRESSION_RATIO_ESTIMATE
+        size.saturating_mul(GZIP_COMPRESSION_RATIO_ESTIMATE)
     } else if ends_with_ignore_ascii_case(key, ".zst") {
-        size * ZSTD_COMPRESSION_RATIO_ESTIMATE
+        size.saturating_mul(ZSTD_COMPRESSION_RATIO_ESTIMATE)
     } else {
         size
     }
@@ -271,7 +328,7 @@ fn ends_with_ignore_ascii_case(key: &str, suffix: &str) -> bool {
     key_suffix.is_some_and(|key_suffix| key_suffix.eq_ignore_ascii_case(suffix))
 }
 
-/// Gets the filename portion of an S3 object's key.
+/// Gets the filename portion of an input path.
 ///
 /// # Returns
 ///
@@ -286,7 +343,7 @@ fn filename(key: &str) -> &str {
     file_name
 }
 
-/// Groups S3 objects by filename similarity.
+/// Groups input paths by filename similarity.
 ///
 /// Places files with sufficiently similar filenames into the same group based on their normalized
 /// Levenshtein similarity.
@@ -381,12 +438,15 @@ mod tests {
     }
 
     fn assert_partition_invariants(
-        input_sources: &[S3InputSource],
+        input_sources: &[CompressionInputSource],
         key_to_size: &BTreeMap<String, u64>,
         target_archive_size: u64,
     ) {
         let mut key_counts: BTreeMap<&str, usize> = BTreeMap::new();
-        for key in input_sources.iter().flat_map(|source| &source.object_keys) {
+        for key in input_sources
+            .iter()
+            .flat_map(clp_rust_utils::task_io::compression::CompressionInputSource::paths)
+        {
             *key_counts.entry(key.as_str()).or_default() += 1;
         }
         for key in key_to_size.keys() {
@@ -396,12 +456,12 @@ mod tests {
 
         for source in input_sources {
             let total_size: u64 = source
-                .object_keys
+                .paths()
                 .iter()
                 .map(|key| key_to_size.get(key).expect("every key was added"))
                 .sum();
             let last_size = source
-                .object_keys
+                .paths()
                 .last()
                 .map(|key| key_to_size.get(key).expect("every key was added"))
                 .expect("`push_input_source` never pushes an empty partition");
@@ -410,6 +470,36 @@ mod tests {
             // the last-appended file must drop the partition back below the target.
             assert!(total_size - last_size < target_archive_size);
         }
+    }
+
+    #[test]
+    fn filesystem_manifests_bound_zero_size_files_and_empty_directories() {
+        let count = MAX_PARTITION_ENTRIES + 17;
+        let directories: Vec<_> = (0..count)
+            .map(|index| format!("/logs/empty/{index}"))
+            .collect();
+        let mut builder = CompressionInputBuilder::from_filesystem(1024, directories.clone());
+        for index in 0..count {
+            builder.add_file(format!("/logs/file/{index}"), 0);
+        }
+        let inputs = builder.into_task_input_sources();
+        let mut all_files = Vec::new();
+        let mut all_directories = Vec::new();
+        for input in inputs {
+            let CompressionInputSource::Fs(source) = input else {
+                panic!("expected filesystem manifest")
+            };
+            assert!(
+                source.file_paths.len() + source.empty_directories.len() <= MAX_PARTITION_ENTRIES
+            );
+            all_files.extend(source.file_paths);
+            all_directories.extend(source.empty_directories);
+        }
+        assert_eq!(all_files.len(), count);
+        all_files.sort();
+        all_files.dedup();
+        assert_eq!(all_files.len(), count);
+        assert_eq!(all_directories, directories);
     }
 
     #[test]
@@ -463,14 +553,11 @@ mod tests {
 
         assert_eq!(
             builder.partitioned_task_inputs,
-            [] as [clp_rust_utils::task_io::compression::S3InputSource; 0]
+            [] as [CompressionInputSource; 0]
         );
 
         let input_sources = builder.into_task_input_sources();
-        assert_ne!(
-            input_sources,
-            [] as [clp_rust_utils::task_io::compression::S3InputSource; 0]
-        );
+        assert_ne!(input_sources, [] as [CompressionInputSource; 0]);
         assert_partition_invariants(&input_sources, &key_to_size, TARGET_ARCHIVE_SIZE);
     }
 
@@ -495,7 +582,7 @@ mod tests {
 
         assert_ne!(
             builder.partitioned_task_inputs,
-            [] as [clp_rust_utils::task_io::compression::S3InputSource; 0]
+            [] as [CompressionInputSource; 0]
         );
 
         let input_sources = builder.into_task_input_sources();
