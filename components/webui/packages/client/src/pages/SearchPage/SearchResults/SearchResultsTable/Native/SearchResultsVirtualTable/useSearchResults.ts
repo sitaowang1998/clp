@@ -79,6 +79,7 @@ const useSearchResults = () => {
         },
         rawDocs: true,
         sorted: true,
+        timeline: false,
     });
 };
 

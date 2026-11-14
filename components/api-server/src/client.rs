@@ -1,3 +1,5 @@
+mod timeline;
+
 use std::num::NonZeroU32;
 use std::pin::Pin;
 
@@ -215,8 +217,8 @@ pub struct QueryConfig {
     pub buffer_results_in_mongodb: bool,
 
     /// The size of each time bucket (in milliseconds) for count-by-time aggregation.
-    /// When set, the job is submitted as a count-by-time aggregation job instead of a plain
-    /// search job, and its results are always buffered in `MongoDB`.
+    /// When set, the job requests timeline aggregation alongside normal search, with both result
+    /// types buffered in `MongoDB`.
     #[serde(default)]
     #[schema(value_type = Option<i64>, minimum = 1)]
     pub count_by_time_bucket_size_millisecs: Option<PositiveI64>,
@@ -296,9 +298,7 @@ impl Client {
         }
     }
 
-    /// Submits a search or aggregation query as a job. The job is a count-by-time aggregation
-    /// job if `count_by_time_bucket_size_millisecs` is set in the query config; otherwise it's a
-    /// plain search job.
+    /// Submits a search job with optional count-by-time aggregation.
     ///
     /// # Returns
     ///
@@ -315,7 +315,9 @@ impl Client {
         Ok(query_job::submit(&self.sql_pool, &query_job_config).await?)
     }
 
-    /// Asynchronously fetches the results of a completed query job.
+    /// Asynchronously fetches the requested results of a completed query job.
+    ///
+    /// `timeline` selects timeline buckets when true and normal results when false.
     ///
     /// # Returns
     ///
@@ -331,6 +333,9 @@ impl Client {
     ///
     /// * [`ClientError::QueryResultsNotStored`] if the job streamed its results to a network
     ///   listener, which means they're not stored.
+    /// * [`ClientError::InvalidInput`] if timeline results are requested without timeline
+    ///   configuration.
+    /// * Forwards [`Client::fetch_timeline`]'s return values on failure.
     /// * Forwards [`Client::get_status`]'s return values on failure.
     /// * Forwards [`Client::get_job_config`]'s return values on failure.
     /// * Forwards [`Client::fetch_results_from_mongo`]'s return values on failure.
@@ -340,6 +345,7 @@ impl Client {
         query_job_id: u64,
         raw_docs: bool,
         sorted: bool,
+        timeline: bool,
     ) -> Result<
         SearchResultStream<
             impl Stream<Item = Result<String, ClientError>> + use<>,
@@ -370,24 +376,35 @@ impl Client {
             }
         }
 
-        match self.get_job_config(query_job_id).await?.output {
+        let output = self.get_job_config(query_job_id).await?.output;
+        let has_timeline = matches!(
+            output,
             QueryOutput::ResultsCache(ResultsCacheOutput {
-                aggregation: Some(_),
+                aggregation: Some(Aggregation::CountByTime { .. }),
                 ..
-            }) => {
-                // Each document is an aggregation record (e.g., a time bucket) rather than a log
-                // message, so stream the documents whole and without a limit.
-                self.fetch_results_from_mongo(query_job_id, None, true, false)
-                    .await
-                    .map(|s| SearchResultStream::Mongo { inner: s })
+            })
+        );
+        if timeline {
+            if !has_timeline {
+                return Err(ClientError::InvalidInput(
+                    "query job has no timeline configuration".to_owned(),
+                ));
             }
+            return self.fetch_timeline(query_job_id).await.map(|inner| {
+                SearchResultStream::Mongo {
+                    inner: futures::future::Either::Left(inner),
+                }
+            });
+        }
+        match output {
             QueryOutput::ResultsCache(ResultsCacheOutput {
-                max_num_results,
-                aggregation: None,
+                max_num_results, ..
             }) => self
                 .fetch_results_from_mongo(query_job_id, max_num_results, raw_docs, sorted)
                 .await
-                .map(|s| SearchResultStream::Mongo { inner: s }),
+                .map(|inner| SearchResultStream::Mongo {
+                    inner: futures::future::Either::Right(inner),
+                }),
             QueryOutput::File {} => Ok(match &self.config.stream_output.storage {
                 StreamOutputStorage::Fs { .. } => SearchResultStream::File {
                     inner: self.fetch_results_from_file(query_job_id),
@@ -604,9 +621,8 @@ impl Client {
     ///
     /// When `max_num_results` is set, the query is limited to at most that many documents.
     ///
-    /// When `raw_docs` is `true`, each document is serialized to JSON whole (used
-    /// for aggregation results); otherwise the document's "message" field is extracted (used for
-    /// search results).
+    /// When `raw_docs` is `true`, each search document is serialized to JSON whole; otherwise
+    /// the document's "message" field is extracted. Timeline records are excluded.
     ///
     /// When `sorted` is `true`, documents are returned sorted by `timestamp` descending (then
     /// `_id` ascending); otherwise, they're returned in insertion order.
@@ -656,7 +672,12 @@ impl Client {
             });
         }
         let cursor = collection
-            .find(mongodb::bson::doc! {})
+            .find(mongodb::bson::doc! {
+                "_id": { "$type": "object" },
+                "_id.log_event_idx": { "$type": ["int", "long"] },
+                "_id.timestamp": { "$exists": false },
+                "count": { "$exists": false },
+            })
             .with_options(find_options)
             .await?;
 

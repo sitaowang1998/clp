@@ -496,8 +496,8 @@ export interface components {
             /**
              * Format: int64
              * @description The size of each time bucket (in milliseconds) for count-by-time aggregation.
-             *     When set, the job is submitted as a count-by-time aggregation job instead of a plain
-             *     search job, and its results are always buffered in `MongoDB`.
+             *     When set, the job requests timeline aggregation alongside normal search, with both result
+             *     types buffered in `MongoDB`.
              */
             count_by_time_bucket_size_millisecs?: number | null;
             /** @description The datasets to search within. If not provided, only `default` dataset will be searched. */
@@ -1125,6 +1125,11 @@ export interface operations {
                  *     are buffered in `MongoDB`.
                  */
                 sorted?: boolean;
+                /**
+                 * @description Select timeline buckets (`true`) or normal results (`false`) from the same job.
+                 *     Defaults to normal results when omitted.
+                 */
+                timeline?: boolean;
             };
             header?: never;
             path: {

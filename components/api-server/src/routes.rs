@@ -215,6 +215,11 @@ struct QueryResultsParams {
     /// are buffered in `MongoDB`.
     #[serde(default)]
     sorted: bool,
+
+    /// Select timeline buckets (`true`) or normal results (`false`) from the same job.
+    /// Defaults to normal results when omitted.
+    #[serde(default)]
+    timeline: bool,
 }
 
 #[utoipa::path(
@@ -253,7 +258,12 @@ async fn query_results(
 ) -> Result<Sse<impl Stream<Item = Result<Event, HandlerError>>>, HandlerError> {
     tracing::info!("Fetching results for query job ID: {}", query_job_id);
     let results_stream = match client
-        .fetch_results(query_job_id, params.raw_docs, params.sorted)
+        .fetch_results(
+            query_job_id,
+            params.raw_docs,
+            params.sorted,
+            params.timeline,
+        )
         .await
     {
         Ok(stream) => {

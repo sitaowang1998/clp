@@ -52,6 +52,8 @@ interface UseQueryResultsOptions<T> {
      * streams results in insertion order and any `compareFn` is still applied client-side.
      */
     sorted?: boolean;
+
+    timeline: boolean;
 }
 
 /**
@@ -118,6 +120,7 @@ const useQueryResults = <T>(
                     query: {
                         raw_docs: optionsRef.current.rawDocs ?? false,
                         sorted: optionsRef.current.sorted ?? false,
+                        timeline: optionsRef.current.timeline,
                     },
                 },
                 parseAs: "stream",

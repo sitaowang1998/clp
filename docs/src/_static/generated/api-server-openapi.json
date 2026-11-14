@@ -184,6 +184,15 @@
             }
           },
           {
+            "name": "timeline",
+            "in": "query",
+            "description": "Select timeline buckets (`true`) or normal results (`false`) from the same job.\nDefaults to normal results when omitted.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "query_job_id",
             "in": "path",
             "required": true,
@@ -398,7 +407,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "The size of each time bucket (in milliseconds) for count-by-time aggregation.\nWhen set, the job is submitted as a count-by-time aggregation job instead of a plain\nsearch job, and its results are always buffered in `MongoDB`.",
+            "description": "The size of each time bucket (in milliseconds) for count-by-time aggregation.\nWhen set, the job requests timeline aggregation alongside normal search, with both result\ntypes buffered in `MongoDB`.",
             "minimum": 1
           },
           "datasets": {
